@@ -42,6 +42,15 @@ class FeishuBitableClient {
     this.recordsCache = null;
     this.notesCache = null;
     console.log('飞书多维表格客户端初始化成功', this.config);
+    
+    // 临时显示字段映射
+    console.log('【调试信息】当前字段映射配置:', JSON.stringify(this.config.fieldMapping, null, 2));
+    
+    // 临时修改：添加对附件字段的支持
+    if (!this.config.fieldMapping.images) {
+      console.log('【调试信息】未配置images字段，尝试使用附件字段');
+      this.config.fieldMapping.images = '附件';
+    }
   }
   
   /**
@@ -85,6 +94,99 @@ class FeishuBitableClient {
       console.error('获取访问令牌失败:', error);
       throw error;
     }
+  }
+  
+  /**
+   * 临时调试函数 - 输出从飞书获取的原始记录字段信息
+   * @param {Array} records 飞书记录数组
+   */
+  debugRecordFields(records) {
+    if (!records || !Array.isArray(records) || records.length === 0) {
+      console.log('【调试信息】无记录可供分析');
+      return;
+    }
+    
+    console.log('【调试信息】=================== 飞书记录字段分析开始 ===================');
+    console.log(`【调试信息】共获取到 ${records.length} 条记录`);
+    
+    // 分析第一条记录
+    const firstRecord = records[0];
+    console.log(`【调试信息】第一条记录ID: ${firstRecord.record_id}`);
+    
+    if (firstRecord.fields) {
+      // 输出所有字段名
+      const fieldNames = Object.keys(firstRecord.fields);
+      console.log(`【调试信息】记录包含的字段名 (${fieldNames.length}): ${fieldNames.join(', ')}`);
+      
+      // 分析每个字段
+      console.log('【调试信息】逐个字段分析:');
+      for (const fieldName of fieldNames) {
+        const fieldValue = firstRecord.fields[fieldName];
+        const valueType = typeof fieldValue;
+        
+        if (valueType === 'object' && fieldValue !== null) {
+          if (Array.isArray(fieldValue)) {
+            console.log(`【调试信息】字段 "${fieldName}": 数组类型 [${fieldValue.length}项]`);
+            
+            // 对数组类型，分析前三个元素
+            for (let i = 0; i < Math.min(fieldValue.length, 3); i++) {
+              const item = fieldValue[i];
+              const itemType = typeof item;
+              
+              if (itemType === 'object' && item !== null) {
+                console.log(`【调试信息】  - 项[${i}]: 对象类型, 属性: ${Object.keys(item).join(', ')}`);
+                
+                // 分析特殊属性
+                if ('url' in item) {
+                  console.log(`【调试信息】    * url: ${item.url.substring(0, 100)}...`);
+                }
+                if ('tmp_url' in item) {
+                  console.log(`【调试信息】    * tmp_url: ${item.tmp_url.substring(0, 100)}...`);
+                }
+                if ('token' in item) {
+                  console.log(`【调试信息】    * token: 存在`);
+                }
+                if ('name' in item) {
+                  console.log(`【调试信息】    * name: ${item.name}`);
+                }
+                if ('type' in item) {
+                  console.log(`【调试信息】    * type: ${item.type}`);
+                }
+              } else {
+                console.log(`【调试信息】  - 项[${i}]: ${itemType}类型, 值: ${item}`);
+              }
+            }
+          } else {
+            console.log(`【调试信息】字段 "${fieldName}": 对象类型, 属性: ${Object.keys(fieldValue).join(', ')}`);
+          }
+        } else {
+          // 简单类型
+          console.log(`【调试信息】字段 "${fieldName}": ${valueType}类型, 值: ${fieldValue}`);
+        }
+      }
+      
+      // 重点检查可能包含图片的字段
+      console.log('【调试信息】检查可能包含图片的字段:');
+      const potentialImageFields = ['图片', '图片链接', '封面', '封面图', '图片地址', '成品', 'images', 'image', '附件'];
+      
+      for (const imgField of potentialImageFields) {
+        if (imgField in firstRecord.fields) {
+          console.log(`【调试信息】发现可能的图片字段: "${imgField}"`);
+          const fieldValue = firstRecord.fields[imgField];
+          
+          if (Array.isArray(fieldValue)) {
+            console.log(`【调试信息】"${imgField}"字段是数组，长度: ${fieldValue.length}`);
+            console.log(`【调试信息】"${imgField}"字段内容:`, JSON.stringify(fieldValue, null, 2));
+          } else {
+            console.log(`【调试信息】"${imgField}"字段值:`, fieldValue);
+          }
+        }
+      }
+    } else {
+      console.log('【调试信息】记录没有fields字段');
+    }
+    
+    console.log('【调试信息】=================== 飞书记录字段分析结束 ===================');
   }
   
   /**
@@ -205,6 +307,10 @@ class FeishuBitableClient {
       }
       
       console.log(`成功获取所有记录, 共 ${allRecords.length} 条`);
+      
+      // 添加：调试记录字段
+      this.debugRecordFields(allRecords);
+      
       this.recordsCache = allRecords;
       return allRecords;
     } catch (error) {
@@ -220,26 +326,110 @@ class FeishuBitableClient {
    */
   convertToNotes(records) {
     if (!records || !Array.isArray(records)) {
-      console.error('无效的记录数据:', records);
+      console.error('[convertToNotes] 无效的记录数据:', records);
       return [];
     }
     
     const { fieldMapping } = this.config;
     
+    // 添加：再次调用调试函数
+    console.log('【调试信息】在convertToNotes中分析记录数据');
+    this.debugRecordFields(records);
+    
+    // 输出当前的字段映射配置
+    console.log('【调试信息】当前的字段映射配置:', JSON.stringify(fieldMapping, null, 2));
+    
     // 防止未设置字段映射
     if (!fieldMapping) {
-      console.error('未设置字段映射');
+      console.error('[convertToNotes] 未设置字段映射');
       return [];
     }
     
-    console.log('正在转换记录为笔记数据，共 ' + records.length + ' 条记录');
-    console.log('使用字段映射:', fieldMapping);
+    console.log('[convertToNotes] 正在转换记录为笔记数据，共 ' + records.length + ' 条记录');
+    console.log('[convertToNotes] 使用字段映射:', fieldMapping);
+    
+    // 分析第一条记录的字段，帮助排查问题
+    if (records.length > 0 && records[0]) {
+      console.log('[convertToNotes] 第一条记录ID:', records[0].record_id);
+      console.log('[convertToNotes] 第一条记录所有字段名:', Object.keys(records[0].fields || {}));
+      
+      // 检查图片字段是否存在
+      const imageFieldName = fieldMapping.images;
+      if (imageFieldName && records[0].fields) {
+        console.log('[convertToNotes] 图片字段名:', imageFieldName);
+        console.log('[convertToNotes] 图片字段是否存在:', imageFieldName in records[0].fields);
+        
+        // 输出图片字段的详细内容
+        if (imageFieldName in records[0].fields) {
+          const imageField = records[0].fields[imageFieldName];
+          console.log('[convertToNotes] 图片字段类型:', typeof imageField);
+          console.log('[convertToNotes] 图片字段内容:', JSON.stringify(imageField, null, 2));
+          
+          if (Array.isArray(imageField)) {
+            console.log('[convertToNotes] 图片字段数组长度:', imageField.length);
+            for (let i = 0; i < imageField.length && i < 5; i++) {  // 只显示前5个
+              console.log(`[convertToNotes] 图片项[${i}]类型:`, typeof imageField[i]);
+              console.log(`[convertToNotes] 图片项[${i}]内容:`, JSON.stringify(imageField[i], null, 2));
+            }
+          }
+        }
+      }
+      
+      // 检查"成品"字段是否存在
+      if (records[0].fields && "成品" in records[0].fields) {
+        console.log('[convertToNotes] 发现"成品"字段');
+        const productImages = records[0].fields["成品"];
+        console.log('[convertToNotes] "成品"字段类型:', typeof productImages);
+        console.log('[convertToNotes] "成品"字段内容:', JSON.stringify(productImages, null, 2));
+        
+        if (Array.isArray(productImages)) {
+          console.log('[convertToNotes] "成品"字段数组长度:', productImages.length);
+          for (let i = 0; i < productImages.length && i < 5; i++) {  // 只显示前5个
+            console.log(`[convertToNotes] "成品"项[${i}]类型:`, typeof productImages[i]);
+            console.log(`[convertToNotes] "成品"项[${i}]内容:`, JSON.stringify(productImages[i], null, 2));
+          }
+        }
+      }
+      
+      // 遍历所有字段，寻找可能包含图片的字段
+      if (records[0].fields) {
+        console.log('[convertToNotes] 检查可能包含图片的其他字段:');
+        for (const fieldName in records[0].fields) {
+          const fieldValue = records[0].fields[fieldName];
+          
+          // 检查对象类型的字段
+          if (typeof fieldValue === 'object' && fieldValue !== null) {
+            // 检查是否为附件字段
+            if (Array.isArray(fieldValue)) {
+              let hasAttachment = false;
+              for (const item of fieldValue) {
+                if (item && typeof item === 'object' && 
+                   (item.type === 'attachment' || item.type === 'image' || 
+                    item.url || item.tmp_url || item.file || 
+                    (item.mime_type && item.mime_type.startsWith('image/')))) {
+                  hasAttachment = true;
+                  console.log(`[convertToNotes] 发现可能的图片字段: ${fieldName}`);
+                  console.log(`[convertToNotes] 字段[${fieldName}]内容:`, JSON.stringify(fieldValue, null, 2));
+                  break;
+                }
+              }
+              if (hasAttachment) continue;
+            } else if (fieldValue.type === 'attachment' || fieldValue.type === 'image' || 
+                      fieldValue.url || fieldValue.tmp_url || fieldValue.file ||
+                      (fieldValue.mime_type && fieldValue.mime_type.startsWith('image/'))) {
+              console.log(`[convertToNotes] 发现可能的图片字段: ${fieldName}`);
+              console.log(`[convertToNotes] 字段[${fieldName}]内容:`, JSON.stringify(fieldValue, null, 2));
+            }
+          }
+        }
+      }
+    }
     
     try {
       const notes = records.map((record, index) => {
         // 检查记录结构
         if (!record || !record.fields) {
-          console.error(`记录 #${index} 缺少字段数据`);
+          console.error(`[convertToNotes] 记录 #${index} 缺少字段数据`);
           return null;
         }
         
@@ -330,7 +520,7 @@ class FeishuBitableClient {
               }
             }
           } catch (tagError) {
-            console.error('处理标签时出错:', tagError, '标签字段值:', tagField);
+            console.error('[convertToNotes] 处理标签时出错:', tagError, '标签字段值:', tagField);
             // 出错时使用空数组
             tags = [];
           }
@@ -363,34 +553,61 @@ class FeishuBitableClient {
         if (fieldMapping.images && fields[fieldMapping.images]) {
           const imageField = fields[fieldMapping.images];
           
+          console.log(`[convertToNotes] 记录 #${index} 的图片字段内容:`, JSON.stringify(imageField, null, 2));
+          
           try {
             // 尝试从不同类型的字段中提取图片URL
             if (typeof imageField === 'string') {
               // 字符串类型，可能包含多个URL
               imageUrls = imageField.split(/[,;\s]+/).filter(Boolean);
+              console.log(`[convertToNotes] 记录 #${index} 从字符串解析出 ${imageUrls.length} 张图片`);
             } else if (Array.isArray(imageField)) {
               // 数组类型
+              console.log(`[convertToNotes] 记录 #${index} 图片字段为数组，长度 ${imageField.length}`);
               for (let i = 0; i < imageField.length; i++) {
                 const item = imageField[i];
+                console.log(`[convertToNotes] 记录 #${index} 图片项[${i}]:`, JSON.stringify(item, null, 2));
+                
                 if (typeof item === 'string') {
                   imageUrls.push(item);
-                } else if (item && item.url) {
-                  imageUrls.push(item.url);
-                } else if (item && item.file && item.file.url) {
-                  imageUrls.push(item.file.url);
-                } else if (item && item.tmp_url) {
-                  // 处理临时URL
-                  imageUrls.push(item.tmp_url);
+                  console.log(`[convertToNotes] 记录 #${index} 添加字符串图片: ${item.substring(0, 50)}...`);
+                } else if (item && typeof item === 'object') {
+                  // 检查所有可能的属性
+                  if (item.url) {
+                    imageUrls.push(item.url);
+                    console.log(`[convertToNotes] 记录 #${index} 添加对象.url图片: ${item.url.substring(0, 50)}...`);
+                  } else if (item.tmp_url) {
+                    imageUrls.push(item.tmp_url);
+                    console.log(`[convertToNotes] 记录 #${index} 添加对象.tmp_url图片: ${item.tmp_url.substring(0, 50)}...`);
+                  } else if (item.file && item.file.url) {
+                    imageUrls.push(item.file.url);
+                    console.log(`[convertToNotes] 记录 #${index} 添加对象.file.url图片: ${item.file.url.substring(0, 50)}...`);
+                  } else if (item.token) {
+                    // 直接添加整个对象，这可能是飞书附件token
+                    imageUrls.push(item);
+                    console.log(`[convertToNotes] 记录 #${index} 添加token对象图片`);
+                  } else {
+                    console.log(`[convertToNotes] 记录 #${index} 无法识别的图片对象格式:`, JSON.stringify(item, null, 2));
+                  }
                 }
               }
             } else if (imageField && typeof imageField === 'object') {
               // 对象类型，可能是附件字段
+              console.log(`[convertToNotes] 记录 #${index} 图片字段为对象:`, JSON.stringify(imageField, null, 2));
+              
               if (imageField.url) {
                 imageUrls.push(imageField.url);
-              } else if (imageField.file && imageField.file.url) {
-                imageUrls.push(imageField.file.url);
+                console.log(`[convertToNotes] 记录 #${index} 添加对象.url图片: ${imageField.url.substring(0, 50)}...`);
               } else if (imageField.tmp_url) {
                 imageUrls.push(imageField.tmp_url);
+                console.log(`[convertToNotes] 记录 #${index} 添加对象.tmp_url图片: ${imageField.tmp_url.substring(0, 50)}...`);
+              } else if (imageField.file && imageField.file.url) {
+                imageUrls.push(imageField.file.url);
+                console.log(`[convertToNotes] 记录 #${index} 添加对象.file.url图片: ${imageField.file.url.substring(0, 50)}...`);
+              } else if (imageField.token) {
+                // 直接添加整个对象，这可能是飞书附件token
+                imageUrls.push(imageField);
+                console.log(`[convertToNotes] 记录 #${index} 添加token对象图片`);
               }
             }
             
@@ -398,22 +615,55 @@ class FeishuBitableClient {
             const productImages = fields["成品"] || [];
             if (Array.isArray(productImages) && productImages.length > 0) {
               // 处理"成品"字段中的图片
+              console.log(`[convertToNotes] 记录 #${index} "成品"字段为数组，长度 ${productImages.length}`);
+              
               for (let i = 0; i < productImages.length; i++) {
                 const item = productImages[i];
-                if (item && (item.url || item.tmp_url)) {
-                  imageUrls.push(item.url || item.tmp_url);
+                console.log(`[convertToNotes] 记录 #${index} "成品"项[${i}]:`, JSON.stringify(item, null, 2));
+                
+                if (item && typeof item === 'object') {
+                  if (item.url) {
+                    imageUrls.push(item.url);
+                    console.log(`[convertToNotes] 记录 #${index} 添加"成品".url图片: ${item.url.substring(0, 50)}...`);
+                  } else if (item.tmp_url) {
+                    imageUrls.push(item.tmp_url);
+                    console.log(`[convertToNotes] 记录 #${index} 添加"成品".tmp_url图片: ${item.tmp_url.substring(0, 50)}...`);
+                  } else if (item.token) {
+                    // 直接添加整个对象
+                    imageUrls.push(item);
+                    console.log(`[convertToNotes] 记录 #${index} 添加"成品"token对象图片`);
+                  } else {
+                    console.log(`[convertToNotes] 记录 #${index} 无法识别的"成品"对象格式:`, JSON.stringify(item, null, 2));
+                  }
                 }
               }
             }
             
           } catch (imageError) {
-            console.error('处理图片字段时出错:', imageError, '图片字段值:', imageField);
+            console.error('[convertToNotes] 处理图片字段时出错:', imageError, '图片字段值:', imageField);
             imageUrls = [];
           }
         }
         
         if (imageUrls.length > 0) {
-          console.log(`记录 #${index} 找到 ${imageUrls.length} 张图片`);
+          console.log(`[convertToNotes] 记录 #${index} (${record_id}) 找到 ${imageUrls.length} 张图片`);
+          
+          // 输出前几张图片信息用于调试
+          for (let i = 0; i < Math.min(imageUrls.length, 3); i++) {
+            const imgData = imageUrls[i];
+            if (typeof imgData === 'string') {
+              console.log(`[convertToNotes] 图片[${i}]为URL: ${imgData.substring(0, 100)}...`);
+            } else if (typeof imgData === 'object') {
+              console.log(`[convertToNotes] 图片[${i}]为对象:`, JSON.stringify(imgData, null, 2));
+            } else {
+              console.log(`[convertToNotes] 图片[${i}]类型: ${typeof imgData}`);
+            }
+          }
+        } else {
+          console.log(`[convertToNotes] 记录 #${index} (${record_id}) 未找到图片`);
+          
+          // 检查记录中的所有字段名，寻找可能包含图片的字段
+          console.log(`[convertToNotes] 记录 #${index} 的所有字段:`, Object.keys(fields));
         }
         
         // 构建笔记对象
@@ -428,10 +678,119 @@ class FeishuBitableClient {
         };
       }).filter(note => note && note.title);
       
-      console.log(`成功转换 ${notes.length} 条笔记数据`);
+      console.log(`[convertToNotes] 成功转换 ${notes.length} 条笔记数据`);
+      
+      // 临时修改：尝试从多种可能的字段名中查找图片
+      console.log('【调试信息】临时修改：尝试从其他字段中查找图片');
+      
+      // 可能包含图片的字段名列表
+      const possibleImageFields = ['图片', '图片链接', '封面', '封面图', '图片地址', '成品', 'images', 'image', '附件'];
+      
+      for (let i = 0; i < notes.length; i++) {
+        const note = notes[i];
+        // 如果笔记已有图片，跳过
+        if (note.imageUrls && note.imageUrls.length > 0) {
+          continue;
+        }
+        
+        // 找到对应的记录
+        const record = records.find(r => r.record_id === note.recordId);
+        if (!record || !record.fields) {
+          continue;
+        }
+        
+        // 检查所有可能的图片字段
+        for (const fieldName of possibleImageFields) {
+          if (record.fields[fieldName]) {
+            const fieldValue = record.fields[fieldName];
+            
+            // 检查是否为数组
+            if (Array.isArray(fieldValue) && fieldValue.length > 0) {
+              console.log(`【调试信息】在笔记#${i} 中找到字段 "${fieldName}" 可能包含图片，长度: ${fieldValue.length}`);
+              
+              // 记录当前为空的情况
+              if (!note.imageUrls || note.imageUrls.length === 0) {
+                note.imageUrls = [];
+                console.log(`【调试信息】笔记#${i} 之前没有图片，现在添加`);
+              }
+              
+              // 处理数组中的每个项
+              for (const item of fieldValue) {
+                if (typeof item === 'string') {
+                  // 字符串直接添加
+                  note.imageUrls.push(item);
+                  console.log(`【调试信息】添加字符串图片URL: ${item.substring(0, 100)}...`);
+                } else if (item && typeof item === 'object') {
+                  // 对象类型，需要检查不同的属性
+                  if (item.url) {
+                    note.imageUrls.push(item);
+                    console.log(`【调试信息】添加带url的对象`);
+                  } else if (item.tmp_url) {
+                    note.imageUrls.push(item);
+                    console.log(`【调试信息】添加带tmp_url的对象`);
+                  } else if (item.file && item.file.url) {
+                    note.imageUrls.push(item);
+                    console.log(`【调试信息】添加带file.url的对象`);
+                  } else if (item.token) {
+                    note.imageUrls.push(item);
+                    console.log(`【调试信息】添加带token的对象`);
+                  } else if (item.name && (item.type === 'image' || item.type === 'attachment')) {
+                    note.imageUrls.push(item);
+                    console.log(`【调试信息】添加带name和type的对象`);
+                  } else {
+                    console.log(`【调试信息】跳过无法识别的对象: ${JSON.stringify(item, null, 2)}`);
+                  }
+                }
+              }
+            } else if (typeof fieldValue === 'string') {
+              // 单个字符串
+              console.log(`【调试信息】在笔记#${i} 中找到字段 "${fieldName}" 为字符串，可能是图片URL`);
+              
+              if (!note.imageUrls || note.imageUrls.length === 0) {
+                note.imageUrls = [];
+              }
+              
+              note.imageUrls.push(fieldValue);
+              console.log(`【调试信息】添加字符串图片URL: ${fieldValue.substring(0, 100)}...`);
+            } else if (fieldValue && typeof fieldValue === 'object') {
+              // 单个对象
+              console.log(`【调试信息】在笔记#${i} 中找到字段 "${fieldName}" 为对象`);
+              
+              if (!note.imageUrls || note.imageUrls.length === 0) {
+                note.imageUrls = [];
+              }
+              
+              note.imageUrls.push(fieldValue);
+              console.log(`【调试信息】添加对象: ${JSON.stringify(fieldValue, null, 2)}`);
+            }
+          }
+        }
+        
+        // 检查现在是否有图片
+        if (note.imageUrls && note.imageUrls.length > 0) {
+          console.log(`【调试信息】笔记#${i} 现在有 ${note.imageUrls.length} 张图片`);
+        } else {
+          console.log(`【调试信息】笔记#${i} 仍然没有图片`);
+        }
+      }
+      
+      // 输出笔记中的图片URL统计
+      let notesWithImages = 0;
+      let totalImageUrls = 0;
+      
+      for (const note of notes) {
+        if (note.imageUrls && note.imageUrls.length > 0) {
+          notesWithImages++;
+          totalImageUrls += note.imageUrls.length;
+        }
+      }
+      
+      console.log(`[convertToNotes] 统计: ${notesWithImages}/${notes.length} 条笔记包含图片，共 ${totalImageUrls} 张图片`);
+      
       return notes;
     } catch (error) {
-      console.error('转换笔记数据失败:', error);
+      console.error('[convertToNotes] 转换笔记数据失败:', error);
+      console.error('[convertToNotes] 错误堆栈:', error.stack);
       return [];
     }
   }
@@ -467,90 +826,335 @@ class FeishuBitableClient {
   
   /**
    * 下载飞书附件
-   * @param {Object} attachment 附件对象
+   * @param {Object|string} attachment 附件对象或URL
    * @param {string} token 访问令牌
-   * @returns {Promise<Blob>} 图片Blob对象
+   * @returns {Promise<Object>} 下载结果
    */
   async downloadAttachment(attachment, token) {
+    console.log('[downloadAttachment] 开始下载附件:', typeof attachment === 'object' ? 
+      JSON.stringify(attachment, null, 2) : attachment);
+    
     try {
-      if (!attachment || !attachment.url) {
+      // 处理字符串类型
+      if (typeof attachment === 'string') {
+        console.log('[downloadAttachment] 处理字符串类型的附件URL');
+        return await this.downloadFeishuFile(attachment);
+      }
+      
+      // 检查附件对象有效性
+      if (!attachment || typeof attachment !== 'object') {
         throw new Error('无效的附件对象');
       }
       
-      const attachmentUrl = attachment.url;
-      console.log('开始下载附件:', attachmentUrl);
-      
-      return await this.downloadImageAsBlob(attachmentUrl, token);
+      // 检查各种可能的字段
+      if (attachment.url) {
+        console.log('[downloadAttachment] 处理带有url字段的附件对象');
+        
+        // 如果有token字段，使用对象原样传递
+        if (attachment.token) {
+          console.log('[downloadAttachment] 附件对象包含token，直接传递');
+          return await this.downloadFeishuFile(attachment);
+        }
+        
+        // 否则使用URL和传入的token
+        console.log('[downloadAttachment] 使用url字段和传入的token下载');
+        const downloadObj = { url: attachment.url };
+        if (token) {
+          downloadObj.token = token;
+        }
+        return await this.downloadFeishuFile(downloadObj);
+      } 
+      else if (attachment.tmp_url) {
+        console.log('[downloadAttachment] 处理带有tmp_url字段的附件对象');
+        
+        // 如果有token字段，使用对象原样传递
+        if (attachment.token) {
+          console.log('[downloadAttachment] 附件对象包含token，直接传递');
+          return await this.downloadFeishuFile(attachment);
+        }
+        
+        // 否则使用URL和传入的token
+        console.log('[downloadAttachment] 使用tmp_url字段和传入的token下载');
+        const downloadObj = { url: attachment.tmp_url };
+        if (token) {
+          downloadObj.token = token;
+        }
+        return await this.downloadFeishuFile(downloadObj);
+      }
+      else if (attachment.file && attachment.file.url) {
+        console.log('[downloadAttachment] 处理带有file.url字段的附件对象');
+        
+        // 使用file.url字段
+        const downloadObj = { url: attachment.file.url };
+        if (token) {
+          downloadObj.token = token;
+        }
+        return await this.downloadFeishuFile(downloadObj);
+      }
+      else if (attachment.token) {
+        // 特殊情况：有token但没有url，可能是特殊格式
+        console.log('[downloadAttachment] 附件对象只有token，无法处理');
+        throw new Error('附件对象缺少URL');
+      }
+      else {
+        console.error('[downloadAttachment] 无法识别的附件格式:', attachment);
+        throw new Error('无法识别的附件格式');
+      }
     } catch (error) {
-      console.error('下载附件失败:', error);
-      throw error;
+      console.error('[downloadAttachment] 下载附件失败:', error);
+      return {
+        success: false,
+        error: error.message,
+        originalAttachment: attachment
+      };
     }
   }
   
   /**
-   * 将图片URL下载为Blob对象
+   * 下载图片并转换为Blob对象
    * @param {string} url 图片URL
    * @param {string} token 访问令牌
-   * @returns {Promise<Blob>} 图片Blob对象
+   * @returns {Promise<Object>} 下载结果
    */
   async downloadImageAsBlob(url, token = null) {
+    console.log('[downloadImageAsBlob] 正在下载图片:', typeof url === 'object' ? JSON.stringify(url, null, 2) : url);
+    console.log('[downloadImageAsBlob] token:', token ? token.substring(0, 10) + '...' : '无');
+    
     try {
-      console.log('开始下载图片:', url);
+      // 检查URL是否为飞书附件
+      const isAttachment = url && (
+        (typeof url === 'string' && (
+          url.includes('feishu.cn/space/api/box/stream/download/all') || 
+          url.includes('larksuite.com/space/api/box/stream/download/all') ||
+          url.includes('feishu.cn/open-apis/bitable') ||
+          url.includes('larksuite.com/open-apis/bitable') ||
+          url.includes('feishucdn.com/obj/') ||
+          url.includes('file-robot-test.feishu.cn/space/api/box/stream/download/') ||
+          url.includes('internal-api-drive-stream.feishu.cn/space/api/box/stream/download/') ||
+          // 处理文档中的图片链接
+          url.includes('p-') && (url.includes('/obj/') || url.includes('/images/'))
+        )) || 
+        typeof url === 'object'
+      );
       
-      const headers = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+      if (isAttachment) {
+        console.log('[downloadImageAsBlob] 检测到飞书附件:', typeof url === 'object' ? JSON.stringify(url, null, 2) : url);
+        const result = await this.downloadFeishuFile(url);
+        console.log('[downloadImageAsBlob] 飞书附件下载结果:', result.success ? '成功' : '失败', result.error || '');
+        return result;
       }
       
-      const response = await fetch(url, { headers });
+      // 普通图片URL下载处理
+      console.log('[downloadImageAsBlob] 使用普通下载方式获取图片:', url);
+      const headers = {};
+      
+      // 如果没有提供token，尝试获取一个
+      if (!token && (url.includes('feishu.cn') || url.includes('larksuite.com') || url.includes('feishucdn.com'))) {
+        try {
+          token = await this.getTenantAccessToken();
+          console.log('[downloadImageAsBlob] 自动获取飞书token:', token ? '成功' : '失败');
+        } catch (e) {
+          console.warn('[downloadImageAsBlob] 获取token失败:', e.message);
+        }
+      }
+      
+      // 如果有token并且是飞书URL，添加授权头
+      if (token && typeof url === 'string' && (
+        url.includes('feishu.cn') || 
+        url.includes('larksuite.com') || 
+        url.includes('feishucdn.com')
+      )) {
+        headers['Authorization'] = `Bearer ${token}`;
+        console.log('[downloadImageAsBlob] 添加授权头进行下载');
+      }
+      
+      // 确保使用原始URL，不要修改URL中的任何参数
+      console.log('[downloadImageAsBlob] 使用完整URL下载:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers,
+        credentials: 'include',
+        mode: 'cors'
+      });
       
       if (!response.ok) {
-        throw new Error(`下载图片失败: ${response.status} ${response.statusText}`);
+        console.error(`[downloadImageAsBlob] 图片下载失败，HTTP状态码: ${response.status}`);
+        return {
+          success: false,
+          error: `HTTP错误: ${response.status}`,
+          statusCode: response.status
+        };
       }
       
       const blob = await response.blob();
-      console.log('图片下载成功, 大小:', Math.round(blob.size / 1024), 'KB');
       
-      return blob;
+      if (!blob || blob.size === 0) {
+        console.error('[downloadImageAsBlob] 下载的图片为空');
+        return {
+          success: false,
+          error: '下载的图片为空',
+          blob: null
+        };
+      }
+      
+      // 检查文件大小，太小可能是失败的响应
+      if (blob.size < 100) {
+        console.warn(`[downloadImageAsBlob] 下载的文件可能有问题，大小过小: ${blob.size} 字节`);
+        
+        try {
+          // 尝试读取响应文本，看看是否包含错误信息
+          const errorText = await response.clone().text();
+          if (errorText && errorText.length < 1000) {  // 限制日志大小
+            console.error('[downloadImageAsBlob] 响应内容可能包含错误:', errorText);
+          }
+        } catch (e) {
+          // 忽略读取错误
+        }
+        
+        return {
+          success: false,
+          error: `文件大小异常: ${blob.size} 字节`,
+          blob: null
+        };
+      }
+      
+      // 检查MIME类型，确保是图片类型
+      if (!blob.type.startsWith('image/')) {
+        console.warn(`[downloadImageAsBlob] 非图片类型: ${blob.type}, 大小: ${blob.size} 字节`);
+        
+        // 尝试强制转换为图片类型
+        try {
+          const imageBlob = new Blob([blob], { type: 'image/jpeg' });
+          console.log(`[downloadImageAsBlob] 强制转换为图片类型: ${imageBlob.type}, 大小: ${imageBlob.size} 字节`);
+          
+          // 创建blob URL
+          const blobUrl = URL.createObjectURL(imageBlob);
+          
+          return {
+            success: true,
+            blob: imageBlob,
+            blobUrl,
+            data: imageBlob,
+            converted: true
+          };
+        } catch (convertError) {
+          console.error('[downloadImageAsBlob] 转换为图片类型失败:', convertError.message);
+        }
+      } else {
+        console.log(`[downloadImageAsBlob] 成功下载图片, 类型: ${blob.type}, 大小: ${blob.size} 字节`);
+      }
+      
+      // 创建blob URL
+      const blobUrl = URL.createObjectURL(blob);
+      
+      return {
+        success: true,
+        blob,
+        blobUrl,
+        data: blob // 添加data属性，确保与downloadFeishuFile返回格式一致
+      };
     } catch (error) {
-      console.error('下载图片失败:', error);
-      throw error;
+      console.error('[downloadImageAsBlob] 下载图片失败:', error.message, '堆栈:', error.stack);
+      return {
+        success: false,
+        error: error.message,
+        url: url
+      };
     }
   }
   
   /**
    * 预加载笔记图片
    * @param {Array} notes 笔记数据数组
+   * @param {Function} progressCallback 可选的进度回调函数
    * @returns {Promise<Array>} 更新后的笔记数据数组
    */
-  async preloadImages(notes) {
+  async preloadImages(notes, progressCallback) {
     if (!notes || !Array.isArray(notes) || notes.length === 0) {
-      console.log('没有笔记数据，跳过图片预加载');
+      console.log('[preloadImages] 没有笔记数据，跳过图片预加载');
       return [];
     }
     
-    try {
-      const token = await this.getTenantAccessToken();
+    console.log('[preloadImages] 开始处理笔记图片，笔记数量:', notes.length);
+    
+    // 详细输出日志，分析传入的笔记数据
+    console.log('[preloadImages] 详细分析传入的笔记数据:');
+    for (let i = 0; i < notes.length; i++) {
+      const note = notes[i];
+      const noteId = note.recordId || `note_${i}`;
       
+      console.log(`[preloadImages] 笔记[${i}] ID:${noteId} 标题:"${note.title}"`);
+      
+      // 分析imageUrls数组
+      if (note.imageUrls && Array.isArray(note.imageUrls)) {
+        console.log(`[preloadImages] 笔记[${i}] 包含 ${note.imageUrls.length} 个图片URL`);
+        
+        // 输出前3个图片URL的详细信息用于调试
+        for (let j = 0; j < Math.min(note.imageUrls.length, 3); j++) {
+          const imageData = note.imageUrls[j];
+          if (typeof imageData === 'string') {
+            console.log(`[preloadImages] 笔记[${i}] 图片[${j}] 为URL字符串:`, 
+              imageData.length > 100 ? imageData.substring(0, 100) + '...' : imageData);
+          } else if (typeof imageData === 'object' && imageData !== null) {
+            console.log(`[preloadImages] 笔记[${i}] 图片[${j}] 为对象:`, JSON.stringify(imageData, null, 2));
+            
+            // 检查对象中的重要属性
+            if (imageData.url) {
+              console.log(`[preloadImages] 笔记[${i}] 图片[${j}] 包含url属性:`, 
+                imageData.url.length > 100 ? imageData.url.substring(0, 100) + '...' : imageData.url);
+            }
+            if (imageData.token) {
+              console.log(`[preloadImages] 笔记[${i}] 图片[${j}] 包含token属性`);
+            }
+            if (imageData.file && imageData.file.url) {
+              console.log(`[preloadImages] 笔记[${i}] 图片[${j}] 包含file.url属性:`, 
+                imageData.file.url.length > 100 ? imageData.file.url.substring(0, 100) + '...' : imageData.file.url);
+            }
+          } else {
+            console.log(`[preloadImages] 笔记[${i}] 图片[${j}] 为不支持的类型:`, typeof imageData);
+          }
+        }
+      } else {
+        console.log(`[preloadImages] 笔记[${i}] 不包含图片URL数组`);
+      }
+      
+      // 检查图片数组是否已经预加载
+      if (note.images && Array.isArray(note.images) && note.images.length > 0) {
+        console.log(`[preloadImages] 笔记[${i}] 已经有 ${note.images.length} 张预加载图片`);
+      }
+    }
+    
+    try {
       // 创建进度追踪对象
       const progress = {
-        total: 0,
-        loaded: 0,
-        failed: 0
+        total: 0,      // 总图片数
+        current: 0,    // 当前处理的图片数
+        success: 0,    // 成功下载的图片数
+        failed: 0,     // 失败的图片数
+        skipped: 0,    // 跳过的图片数
+        detail: {}     // 详细信息
       };
       
       // 计算需要加载的图片总数
       for (const note of notes) {
+        // 检查imageUrls是否存在且为数组
         if (note.imageUrls && Array.isArray(note.imageUrls)) {
           progress.total += note.imageUrls.length;
         }
       }
       
-      console.log(`开始预加载 ${progress.total} 张图片`);
+      console.log(`[preloadImages] 共发现 ${progress.total} 张图片需要预加载`);
       
-      // 为每个笔记加载图片
+      // 如果提供了回调函数，初始化进度
+      if (typeof progressCallback === 'function') {
+        progressCallback(progress);
+      }
+      
+      // 处理每个笔记
       for (let i = 0; i < notes.length; i++) {
         const note = notes[i];
+        const noteId = note.recordId || `note_${i}`;
         
         // 确保images数组存在
         if (!note.images) {
@@ -559,76 +1163,64 @@ class FeishuBitableClient {
         
         // 跳过没有图片URL的笔记
         if (!note.imageUrls || !Array.isArray(note.imageUrls) || note.imageUrls.length === 0) {
-          console.log(`笔记 ${i+1}/${notes.length} 没有图片，跳过`);
+          console.log(`[preloadImages] 笔记 ${i+1}/${notes.length} (${noteId}) 没有图片，跳过`);
           continue;
         }
         
-        console.log(`处理笔记 ${i+1}/${notes.length} 的图片，共 ${note.imageUrls.length} 张`);
+        console.log(`[preloadImages] 处理笔记 ${i+1}/${notes.length} (${noteId}) 的图片，共 ${note.imageUrls.length} 张`);
         
         // 处理每张图片
         for (let j = 0; j < note.imageUrls.length; j++) {
-          const url = note.imageUrls[j];
+          const imageData = note.imageUrls[j];
+          const imageIndex = j;
           
-          if (!url) {
-            console.log(`笔记 ${i+1} 的第 ${j+1} 张图片URL无效，跳过`);
-            progress.failed++;
-            
-            // 添加失败的图片信息
-            note.images.push({
-              originalUrl: url,
-              success: false,
-              error: '无效的图片URL',
-              blobUrl: null
-            });
-            continue;
-          }
-          
-          try {
-            console.log(`正在加载笔记 ${i+1}/${notes.length} 的第 ${j+1}/${note.imageUrls.length} 张图片`);
-            
-            // 下载图片
-            const blob = await this.downloadImageAsBlob(url, token);
-            
-            // 创建对象URL
-            const objectUrl = URL.createObjectURL(blob);
-            
-            // 添加到笔记的图片列表
-            note.images.push({
-              blob,
-              url: objectUrl,
-              originalUrl: url,
-              success: true,
-              blobUrl: objectUrl  // 添加blobUrl属性以匹配popup.js中期望的格式
-            });
-            
-            progress.loaded++;
-          } catch (error) {
-            console.error(`加载图片失败: ${url}`, error);
-            progress.failed++;
-            
-            // 添加失败的图片信息，包含success: false标志
-            note.images.push({
-              originalUrl: url,
-              success: false,
-              error: error.message,
-              blobUrl: null
-            });
+          // 检查是URL还是对象
+          if (typeof imageData === 'string') {
+            // URL类型
+            try {
+              console.log(`[preloadImages] 处理URL图片 ${j+1}/${note.imageUrls.length}: ${imageData.substring(0, 100)}...`);
+              await this.processImageUrl(imageData, noteId, imageIndex, progress);
+            } catch (error) {
+              console.error(`[preloadImages] 处理图片URL失败:`, error);
+              // 错误已在processImageUrl中处理，这里不需要额外处理
+            }
+          } else if (imageData && typeof imageData === 'object') {
+            // 对象类型（如飞书附件）
+            try {
+              console.log(`[preloadImages] 处理对象图片 ${j+1}/${note.imageUrls.length}:`, JSON.stringify(imageData, null, 2));
+              await this.processImageObject(imageData, noteId, imageIndex, progress, progressCallback);
+            } catch (error) {
+              console.error(`[preloadImages] 处理图片对象失败:`, error);
+              // 错误已在processImageObject中处理，这里不需要额外处理
+            }
+          } else {
+            // 无效类型
+            console.warn(`[preloadImages] 无效的图片数据类型: ${typeof imageData}`);
+            progress.skipped++;
+            progress.current++;
+            progress.detail[`${noteId}_${imageIndex}`] = {
+              status: 'skipped',
+              reason: '无效的图片数据类型'
+            };
           }
           
           // 更新进度
-          const progressPercent = Math.round((progress.loaded + progress.failed) / progress.total * 100);
-          console.log(`图片加载进度: ${progressPercent}% (${progress.loaded}/${progress.total}, 失败: ${progress.failed})`);
+          if (typeof progressCallback === 'function') {
+            progressCallback(progress);
+          }
         }
+        
+        // 注意: 图片资源会由processImageUrl和processImageObject添加到note.images数组中
       }
       
-      console.log(`图片预加载完成: 成功 ${progress.loaded}, 失败 ${progress.failed}, 总计 ${progress.total}`);
+      console.log(`[preloadImages] 图片预加载完成: 成功 ${progress.success}, 失败 ${progress.failed}, 跳过 ${progress.skipped}, 总计 ${progress.total}`);
       
       return notes;
     } catch (error) {
-      console.error('预加载图片失败:', error);
-      console.error('错误堆栈:', error.stack);
+      console.error('[preloadImages] 预加载图片失败:', error);
+      console.error('[preloadImages] 错误堆栈:', error.stack);
       // 出错时仍然返回原始笔记，避免整体失败
-      console.log('返回未预加载图片的原始笔记');
+      console.log('[preloadImages] 返回未完全预加载图片的笔记');
       return notes;
     }
   }
@@ -681,6 +1273,443 @@ class FeishuBitableClient {
     } catch (error) {
       console.error('更新记录状态失败:', error);
       throw error;
+    }
+  }
+  
+  /**
+   * 处理图片URL
+   * @param {string} imageUrl 图片URL
+   * @param {string} noteId 笔记ID
+   * @param {number} imageIndex 图片索引
+   * @param {Object} progress 进度对象
+   * @returns {Promise<Object>} 处理结果
+   */
+  async processImageUrl(imageUrl, noteId, imageIndex, progress) {
+    // 跳过无效URL
+    if (!imageUrl || typeof imageUrl !== 'string') {
+      console.warn(`[processImageUrl] 无效的图片URL:`, imageUrl);
+      progress.skipped++;
+      progress.current++;
+      progress.detail[`${noteId}_${imageIndex}`] = {
+        status: 'skipped',
+        reason: '无效URL'
+      };
+      return null;
+    }
+    
+    // 检查是否为飞书URL，如果是则尝试获取token
+    let token = null;
+    if (imageUrl.includes('feishu.cn') || imageUrl.includes('feishu.com') || imageUrl.includes('feishucdn.com')) {
+      try {
+        token = await this.getTenantAccessToken();
+      } catch (error) {
+        console.error(`[processImageUrl] 获取飞书token失败:`, error);
+      }
+    }
+    
+    // 记录详细日志
+    console.log(`[processImageUrl] 下载图片 ${noteId}_${imageIndex}: ${imageUrl.substring(0, 100)}...`);
+    
+    try {
+      // 尝试下载图片
+      const result = await this.downloadImageAsBlob(imageUrl, token);
+      
+      // 检查结果
+      if (result && result.success && result.blob) {
+        const blobSize = result.blob.size;
+        console.log(`[processImageUrl] 图片下载成功: ${blobSize} 字节`);
+        
+        // 更新进度
+        progress.success++;
+        progress.current++;
+        progress.detail[`${noteId}_${imageIndex}`] = {
+          status: 'success',
+          type: 'url',
+          size: blobSize,
+          url: result.blobUrl
+        };
+        
+        // 查找相应的笔记并添加图片
+        const notes = this.notesCache || [];
+        const note = notes.find(n => n.recordId === noteId);
+        if (note) {
+          // 确保images数组存在
+          if (!note.images) {
+            note.images = [];
+          }
+          
+          // 添加图片信息
+          note.images.push({
+            blob: result.blob,
+            data: result.data,
+            url: result.blobUrl,
+            blobUrl: result.blobUrl,
+            originalUrl: imageUrl,
+            success: true
+          });
+        }
+        
+        return result;
+      } else {
+        throw new Error(result?.error || '图片下载失败，无结果');
+      }
+    } catch (error) {
+      console.error(`[processImageUrl] 图片下载失败:`, error);
+      
+      // 更新进度
+      progress.failed++;
+      progress.current++;
+      progress.detail[`${noteId}_${imageIndex}`] = {
+        status: 'failed',
+        type: 'url',
+        error: error.message,
+        url: imageUrl
+      };
+      
+      // 查找相应的笔记并添加失败信息
+      const notes = this.notesCache || [];
+      const note = notes.find(n => n.recordId === noteId);
+      if (note) {
+        // 确保images数组存在
+        if (!note.images) {
+          note.images = [];
+        }
+        
+        // 添加失败信息
+        note.images.push({
+          originalUrl: imageUrl,
+          success: false,
+          error: error.message,
+          blobUrl: null
+        });
+      }
+      
+      throw error;
+    }
+  }
+  
+  /**
+   * 处理图片对象（飞书附件）
+   * @param {Object} imageObj 图片对象
+   * @param {string} noteId 笔记ID
+   * @param {number} imageIndex 图片索引
+   * @param {Object} progress 进度对象
+   * @param {Function} progressCallback 进度回调
+   * @returns {Promise<Object>} 处理结果
+   */
+  async processImageObject(imageObj, noteId, imageIndex, progress, progressCallback) {
+    // 检查对象有效性
+    if (!imageObj || typeof imageObj !== 'object') {
+      console.warn(`[processImageObject] 无效的图片对象:`, imageObj);
+      progress.skipped++;
+      progress.current++;
+      progress.detail[`${noteId}_${imageIndex}`] = {
+        status: 'skipped',
+        reason: '无效对象'
+      };
+      return null;
+    }
+    
+    console.log(`[processImageObject] 处理附件图片:`, JSON.stringify(imageObj, null, 2));
+    
+    // 临时：直接输出对象的所有属性和类型
+    console.log('【调试信息】图片对象属性列表:');
+    for (const key in imageObj) {
+      const value = imageObj[key];
+      console.log(`【调试信息】 - ${key}: ${typeof value}`);
+      if (typeof value === 'object' && value !== null) {
+        console.log(`【调试信息】   子属性: ${Object.keys(value).join(', ')}`);
+      } else if (typeof value === 'string' && value.length > 100) {
+        console.log(`【调试信息】   值: ${value.substring(0, 100)}...`);
+      } else {
+        console.log(`【调试信息】   值: ${value}`);
+      }
+    }
+    
+    try {
+      // 飞书附件专用处理
+      if (imageObj.type === 'attachment' || imageObj.type === 'file') {
+        console.log('【调试信息】检测到飞书标准附件类型');
+        
+        // 检查是否有必要的属性
+        if (!imageObj.name) {
+          console.warn('【调试信息】附件缺少name属性');
+        }
+        
+        // 尝试不同的URL属性
+        if (!imageObj.url && !imageObj.tmp_url && (!imageObj.file || !imageObj.file.url)) {
+          console.error('【调试信息】附件没有可用的URL属性');
+        }
+      } 
+      
+      // 下载附件
+      const result = await this.downloadFeishuFile(imageObj);
+      
+      // 检查结果
+      if (result && result.success && result.blob) {
+        const blobSize = result.blob.size;
+        console.log(`[processImageObject] 附件下载成功: ${blobSize} 字节`);
+        
+        // 更新进度
+        progress.success++;
+        progress.current++;
+        progress.detail[`${noteId}_${imageIndex}`] = {
+          status: 'success',
+          type: 'attachment',
+          size: blobSize,
+          url: result.blobUrl
+        };
+        
+        // 查找相应的笔记并添加图片
+        const notes = this.notesCache || [];
+        const note = notes.find(n => n.recordId === noteId);
+        if (note) {
+          // 确保images数组存在
+          if (!note.images) {
+            note.images = [];
+          }
+          
+          // 添加图片信息
+          note.images.push({
+            blob: result.blob,
+            data: result.data,
+            url: result.blobUrl,
+            blobUrl: result.blobUrl,
+            originalUrl: imageObj.url || imageObj.tmp_url || (imageObj.file && imageObj.file.url) || JSON.stringify(imageObj),
+            success: true
+          });
+        }
+        
+        // 执行回调
+        if (typeof progressCallback === 'function') {
+          progressCallback(progress);
+        }
+        
+        return result;
+      } else {
+        throw new Error(result?.error || '附件下载失败，无结果');
+      }
+    } catch (error) {
+      console.error(`[processImageObject] 附件下载失败:`, error);
+      
+      // 更新进度
+      progress.failed++;
+      progress.current++;
+      progress.detail[`${noteId}_${imageIndex}`] = {
+        status: 'failed',
+        type: 'attachment',
+        error: error.message
+      };
+      
+      // 查找相应的笔记并添加失败信息
+      const notes = this.notesCache || [];
+      const note = notes.find(n => n.recordId === noteId);
+      if (note) {
+        // 确保images数组存在
+        if (!note.images) {
+          note.images = [];
+        }
+        
+        // 添加失败信息
+        note.images.push({
+          originalUrl: imageObj.url || imageObj.tmp_url || (imageObj.file && imageObj.file.url) || JSON.stringify(imageObj),
+          success: false,
+          error: error.message,
+          blobUrl: null
+        });
+      }
+      
+      throw error;
+    }
+  }
+
+  /**
+   * 下载飞书文件
+   * @param {string|Object} fileInfo 飞书文件信息，可能是URL或包含文件信息的对象
+   * @returns {Promise<Object>} 下载结果对象
+   */
+  async downloadFeishuFile(fileInfo) {
+    console.log('[downloadFeishuFile] 开始下载飞书文件:', typeof fileInfo === 'object' ? JSON.stringify(fileInfo, null, 2) : fileInfo);
+    
+    try {
+      // 初始化token为null，可能需要动态获取
+      let token = null;
+      let downloadUrl = null;
+      
+      // 处理对象类型的文件信息
+      if (typeof fileInfo === 'object' && fileInfo !== null) {
+        console.log('[downloadFeishuFile] 处理对象类型的文件信息');
+        
+        // 检查是否为飞书多维表格附件格式
+        if (fileInfo.token) {
+          // 飞书多维表格的附件格式，包含token用于授权
+          console.log('[downloadFeishuFile] 检测到飞书多维表格附件格式，包含token');
+          token = fileInfo.token;
+          
+          // 检查文件URL
+          if (fileInfo.url) {
+            downloadUrl = fileInfo.url;
+            console.log('[downloadFeishuFile] 使用fileInfo.url下载附件');
+          } else if (fileInfo.tmp_url) {
+            downloadUrl = fileInfo.tmp_url;
+            console.log('[downloadFeishuFile] 使用fileInfo.tmp_url下载附件');
+          } else {
+            throw new Error('附件对象缺少url或tmp_url属性');
+          }
+        } else if (fileInfo.url) {
+          // 简单对象，包含URL但不包含token
+          downloadUrl = fileInfo.url;
+          console.log('[downloadFeishuFile] 使用fileInfo.url下载附件，不包含token');
+          
+          // 尝试获取token
+          try {
+            token = await this.getTenantAccessToken();
+            console.log('[downloadFeishuFile] 获取飞书token成功');
+          } catch (error) {
+            console.warn('[downloadFeishuFile] 获取token失败，可能影响下载:', error.message);
+          }
+        } else if (fileInfo.tmp_url) {
+          // 包含临时URL的对象
+          downloadUrl = fileInfo.tmp_url;
+          console.log('[downloadFeishuFile] 使用fileInfo.tmp_url下载附件');
+          
+          // 尝试获取token
+          try {
+            token = await this.getTenantAccessToken();
+            console.log('[downloadFeishuFile] 获取飞书token成功');
+          } catch (error) {
+            console.warn('[downloadFeishuFile] 获取token失败，可能影响下载:', error.message);
+          }
+        } else if (fileInfo.file && fileInfo.file.url) {
+          // 嵌套的file对象
+          downloadUrl = fileInfo.file.url;
+          console.log('[downloadFeishuFile] 使用fileInfo.file.url下载附件');
+          
+          // 尝试获取token
+          try {
+            token = await this.getTenantAccessToken();
+            console.log('[downloadFeishuFile] 获取飞书token成功');
+          } catch (error) {
+            console.warn('[downloadFeishuFile] 获取token失败，可能影响下载:', error.message);
+          }
+        } else {
+          console.error('[downloadFeishuFile] 附件对象格式不支持:', fileInfo);
+          throw new Error('不支持的附件对象格式');
+        }
+      } else if (typeof fileInfo === 'string') {
+        // 字符串URL类型
+        downloadUrl = fileInfo;
+        console.log('[downloadFeishuFile] 使用字符串URL下载附件');
+        
+        // 检查是否为飞书域名
+        if (downloadUrl.includes('feishu.cn') || 
+            downloadUrl.includes('larksuite.com') || 
+            downloadUrl.includes('feishucdn.com')) {
+          // 尝试获取token
+          try {
+            token = await this.getTenantAccessToken();
+            console.log('[downloadFeishuFile] 获取飞书token成功');
+          } catch (error) {
+            console.warn('[downloadFeishuFile] 获取token失败，可能影响下载:', error.message);
+          }
+        }
+      } else {
+        console.error('[downloadFeishuFile] 不支持的文件信息类型:', typeof fileInfo);
+        throw new Error(`不支持的文件信息类型: ${typeof fileInfo}`);
+      }
+      
+      if (!downloadUrl) {
+        throw new Error('无法提取下载URL');
+      }
+      
+      console.log('[downloadFeishuFile] 开始下载文件，URL:', downloadUrl);
+      
+      // 准备请求头
+      const headers = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+        console.log('[downloadFeishuFile] 添加授权头');
+      }
+      
+      // 发送请求
+      const response = await fetch(downloadUrl, {
+        method: 'GET',
+        headers,
+        credentials: 'include',
+        mode: 'cors'
+      });
+      
+      if (!response.ok) {
+        console.error(`[downloadFeishuFile] 下载失败，HTTP状态码: ${response.status}`);
+        
+        try {
+          // 尝试读取错误响应
+          const errorText = await response.text();
+          console.error('[downloadFeishuFile] 错误响应:', errorText);
+        } catch (e) {
+          // 忽略读取错误
+        }
+        
+        return {
+          success: false,
+          error: `HTTP错误: ${response.status}`,
+          statusCode: response.status
+        };
+      }
+      
+      // 获取响应Blob
+      const blob = await response.blob();
+      
+      // 检查Blob有效性
+      if (!blob || blob.size === 0) {
+        console.error('[downloadFeishuFile] 下载的文件为空');
+        return {
+          success: false,
+          error: '下载的文件为空',
+          blob: null
+        };
+      }
+      
+      // 检查文件大小，太小可能是失败的响应
+      if (blob.size < 100) {
+        console.warn(`[downloadFeishuFile] 下载的文件可能有问题，大小过小: ${blob.size} 字节`);
+        
+        try {
+          // 尝试读取响应文本，看看是否包含错误信息
+          const errorText = await response.clone().text();
+          console.error('[downloadFeishuFile] 响应内容:', errorText);
+        } catch (e) {
+          // 忽略读取错误
+        }
+        
+        return {
+          success: false,
+          error: `文件大小异常: ${blob.size} 字节`,
+          blob: null
+        };
+      }
+      
+      console.log(`[downloadFeishuFile] 下载成功，大小: ${blob.size} 字节，类型: ${blob.type}`);
+      
+      // 创建blob URL
+      const blobUrl = URL.createObjectURL(blob);
+      
+      // 返回成功结果
+      return {
+        success: true,
+        blob,
+        blobUrl,
+        data: blob, // 添加data属性保持一致性
+        originalUrl: downloadUrl,
+        fileInfo
+      };
+    } catch (error) {
+      console.error('[downloadFeishuFile] 下载失败:', error);
+      return {
+        success: false,
+        error: error.message,
+        fileInfo
+      };
     }
   }
 }
