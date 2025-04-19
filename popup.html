@@ -634,7 +634,7 @@
 </head>
 <body>
   <div class="header">
-    <div class="header-left">小红书助手</div>
+    <div class="header-left">小红书发布助手</div>
     <div class="header-right">
       <button class="help-btn" title="使用说明">?</button>
       <button class="close-btn">✕</button>
@@ -704,6 +704,14 @@
       </svg>
       开始发布
     </button>
+    
+    <!-- 停止发布按钮 -->
+    <button id="stopButton" class="btn-with-icon" style="display: none; background-color: #ff4d4f; margin-top: 10px;">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+      </svg>
+      停止发布
+    </button>
   </div>
 
   <!-- 添加使用说明弹窗 -->
@@ -735,6 +743,7 @@
         <p>- 选择固定间隔或随机间隔</p>
         <p>- 设置发布时间间隔（分钟）</p>
         <p>- 点击"开始发布"自动发布</p>
+        <p>- 发布过程中可点击"停止发布"中断任务</p>
       </div>
 
       <div class="help-section">
@@ -742,6 +751,7 @@
         <p>- 发布前请确保已登录小红书</p>
         <p>- 建议使用5分钟以上的发布间隔</p>
         <p>- 可随时查看顶部操作日志</p>
+        <p>- 手动停止后将不会继续发布剩余笔记</p>
       </div>
 
       <div class="help-footer">

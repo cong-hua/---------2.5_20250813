@@ -234,17 +234,39 @@ async function cleanup() {
 
 // 停止发布
 async function stopPublishing() {
+  // 设置发布状态为停止
   publishState.isPublishing = false;
+  publishState.currentAction = '已停止发布';
+  publishState.waitTime = 0;
+  
+  // 通知 popup 已停止
   notifyPopup('STOPPED');
+  
+  // 记录日志
+  console.log('发布任务被手动停止', publishState);
   
   // 尝试关闭发布标签页
   try {
     if (publishState.tabId) {
       await chrome.tabs.remove(publishState.tabId);
+      publishState.tabId = null;
     }
   } catch (error) {
     console.error('关闭标签页失败:', error);
   }
+  
+  // 清理存储的状态
+  await chrome.storage.local.set({
+    pState: {
+      i: false,
+      c: publishState.currentIndex,
+      t: publishState.totalNotes,
+      a: '已停止发布',
+      w: 0
+    }
+  });
+  
+  return { success: true };
 }
 
 // 在扩展启动时恢复状态

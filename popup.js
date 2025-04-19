@@ -147,6 +147,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const fileInput = document.getElementById('fileInput');
   const readFileBtn = document.getElementById('readFile');
   const startButton = document.getElementById('startButton');
+  const stopButton = document.getElementById('stopButton');
   
   if (readFileBtn && fileInput) {
     console.log('找到文件按钮');
@@ -342,6 +343,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         isPublishing = true;
         addLog('开始发布笔记...', 'info');
         startStatusUpdates();
+        
+        // 显示停止按钮，隐藏开始按钮
+        startButton.style.display = 'none';
+        stopButton.style.display = 'block';
 
       } catch (error) {
         addLog(`启动发布失败: ${error.message}`, 'error');
@@ -365,6 +370,61 @@ document.addEventListener('DOMContentLoaded', async () => {
     startButton.addEventListener('mouseout', () => {
       startButton.style.opacity = '1';
       startButton.style.transform = 'scale(1)';
+    });
+  }
+
+  // 停止发布按钮
+  if (stopButton) {
+    console.log('找到停止发布按钮');
+    stopButton.onclick = async () => {
+      try {
+        if (!confirm('确定要停止发布吗？已发布的笔记不会被撤回。')) {
+          return;
+        }
+        
+        addLog('正在停止发布...', 'info');
+        
+        // 发送停止发布消息
+        await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ type: 'STOP_PUBLISH' }, (response) => {
+            resolve(response);
+          });
+        });
+        
+        isPublishing = false;
+        addLog('已停止发布', 'success');
+        
+        // 隐藏停止按钮，显示开始按钮
+        stopButton.style.display = 'none';
+        startButton.style.display = 'block';
+        
+        // 清除状态更新定时器
+        if (window.statusUpdateTimer) {
+          clearInterval(window.statusUpdateTimer);
+          window.statusUpdateTimer = null;
+        }
+      } catch (error) {
+        addLog(`停止发布失败: ${error.message}`, 'error');
+      }
+    };
+    
+    // 添加点击效果
+    stopButton.addEventListener('mousedown', () => {
+      stopButton.style.transform = 'scale(0.98)';
+    });
+
+    stopButton.addEventListener('mouseup', () => {
+      stopButton.style.transform = 'scale(1)';
+    });
+
+    // 添加悬停效果
+    stopButton.addEventListener('mouseover', () => {
+      stopButton.style.opacity = '0.9';
+    });
+
+    stopButton.addEventListener('mouseout', () => {
+      stopButton.style.opacity = '1';
+      stopButton.style.transform = 'scale(1)';
     });
   }
 
@@ -398,28 +458,34 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 监听来自 background 的消息
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    switch (message.type) {
-      case 'NOTE_PUBLISHED':
-        addLog(`第${message.data.index + 1}篇笔记发布完成`, 'success');
-        break;
-      case 'WAITING':
-        const minutes = Math.floor(message.data.waitTime / 60);
-        const seconds = message.data.waitTime % 60;
-        addLog(`等待发布第${message.data.nextIndex + 1}篇笔记...`, 'info',
-          `等待时间: ${minutes}分${seconds}秒`);
-        break;
-      case 'ERROR':
-        addLog(`发布出错: ${message.data}`, 'error');
-        isPublishing = false;
-        break;
-      case 'COMPLETED':
-        addLog('所有笔记发布完成', 'success');
-        isPublishing = false;
-        break;
-      case 'STOPPED':
-        addLog('已停止发布', 'info');
-        isPublishing = false;
-        break;
+    if (message.type === 'STATUS_UPDATE') {
+      // 更新日志（如果不是倒计时消息）
+      if (!message.data.state.countdown) {
+        addLog(message.data.message);
+      }
+      
+      // 更新状态显示
+      updateStatusDisplay(message.data.state);
+      
+      // 更新按钮状态
+      updateButtonStatus(message.data.state.isPublishing);
+    } else if (message.type === 'COMPLETED' || message.type === 'STOPPED') {
+      // 发布完成或被停止
+      isPublishing = false;
+      
+      // 更新按钮状态
+      updateButtonStatus(false);
+    } else if (message.type === 'NOTE_PUBLISHED') {
+      addLog(`第${message.data.index + 1}篇笔记发布完成`, 'success');
+    } else if (message.type === 'WAITING') {
+      const minutes = Math.floor(message.data.waitTime / 60);
+      const seconds = message.data.waitTime % 60;
+      addLog(`等待发布第${message.data.nextIndex + 1}篇笔记...`, 'info',
+        `等待时间: ${minutes}分${seconds}秒`);
+    } else if (message.type === 'ERROR') {
+      addLog(`发布出错: ${message.data}`, 'error');
+      isPublishing = false;
+      updateButtonStatus(false);
     }
   });
 
@@ -430,6 +496,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       isPublishing = true;
       addLog('发布任务正在进行中...', 'info');
       startStatusUpdates();
+      
+      // 显示停止按钮，隐藏开始按钮
+      updateButtonStatus(true);
     }
   } catch (error) {
     console.error('检查发布状态失败:', error);
@@ -448,9 +517,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         waitTime: result.pState.w
       };
       updateStatusDisplay(state);
+      
+      // 根据状态更新按钮显示
+      updateButtonStatus(state.isPublishing);
     }
   });
 });
+
+// 辅助函数：更新按钮状态
+function updateButtonStatus(isPublishing) {
+  const startButton = document.getElementById('startButton');
+  const stopButton = document.getElementById('stopButton');
+  
+  if (startButton && stopButton) {
+    if (isPublishing) {
+      startButton.style.display = 'none';
+      stopButton.style.display = 'block';
+    } else {
+      startButton.style.display = 'block';
+      stopButton.style.display = 'none';
+    }
+  }
+}
 
 function switchTab(selector) {
   // 1. 找到所有的tab元素
@@ -1831,21 +1919,6 @@ async function restoreLogs() {
   }
 }
 
-// 修改消息监听函数
-function setupMessageListener() {
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === 'STATUS_UPDATE') {
-      // 更新日志（如果不是倒计时消息）
-      if (!message.data.state.countdown) {
-        addLog(message.data.message);
-      }
-      
-      // 更新状态显示
-      updateStatusDisplay(message.data.state);
-    }
-  });
-}
-
 // 添加状态显示更新函数
 function updateStatusDisplay(state) {
   const logPanel = document.getElementById('logPanel');
@@ -1885,4 +1958,39 @@ ${state.currentAction}`;
   // 确保状态显示在最后
   logPanel.appendChild(statusDiv);
   logPanel.scrollTop = logPanel.scrollHeight;
+}
+
+// 修改消息监听函数
+function setupMessageListener() {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'STATUS_UPDATE') {
+      // 更新日志（如果不是倒计时消息）
+      if (!message.data.state.countdown) {
+        addLog(message.data.message);
+      }
+      
+      // 更新状态显示
+      updateStatusDisplay(message.data.state);
+      
+      // 更新按钮状态
+      updateButtonStatus(message.data.state.isPublishing);
+    } else if (message.type === 'COMPLETED' || message.type === 'STOPPED') {
+      // 发布完成或被停止
+      isPublishing = false;
+      
+      // 更新按钮状态
+      updateButtonStatus(false);
+    } else if (message.type === 'NOTE_PUBLISHED') {
+      addLog(`第${message.data.index + 1}篇笔记发布完成`, 'success');
+    } else if (message.type === 'WAITING') {
+      const minutes = Math.floor(message.data.waitTime / 60);
+      const seconds = message.data.waitTime % 60;
+      addLog(`等待发布第${message.data.nextIndex + 1}篇笔记...`, 'info',
+        `等待时间: ${minutes}分${seconds}秒`);
+    } else if (message.type === 'ERROR') {
+      addLog(`发布出错: ${message.data}`, 'error');
+      isPublishing = false;
+      updateButtonStatus(false);
+    }
+  });
 } 
