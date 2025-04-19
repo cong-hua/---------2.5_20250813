@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      width: 400px;
+      padding: 10px;
+      margin: 0;
+      background: white;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px;
+      margin: -10px -10px 10px -10px;
+      background: #f5f5f5;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .header-right {
+      display: flex;
+      gap: 10px;
+    }
+
+    .help-btn {
+      padding: 5px 10px;
+      background: none;
+      border: none;
+      color: #666;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 16px;
+    }
+
+    .close-btn {
+      padding: 5px 10px;
+      background: none;
+      border: none;
+      color: #666;
+      cursor: pointer;
+    }
+
+    button {
+      width: 100%;
+      padding: 8px;
+      margin: 5px 0;
+      background: #1890ff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    #fileInput {
+      display: none;
+    }
+
+    #content {
+      margin: 10px 0;
+      padding: 10px;
+      border: 1px solid #ccc;
+    }
+
+    #body {
+      white-space: pre-wrap;
+    }
+
+    #logPanel {
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      max-height: 150px;
+      overflow: auto;
+    }
+
+    .log-item {
+      margin-bottom: 8px;
+      padding: 5px 8px;
+      border-radius: 4px;
+      border-left: 3px solid transparent;
+    }
+
+    .log-item.info {
+      background: #e6f7ff;
+      border-left-color: #1890ff;
+    }
+
+    .log-item.success {
+      background: #f6ffed;
+      border-left-color: #52c41a;
+    }
+
+    .log-item.error {
+      background: #fff2f0;
+      border-left-color: #ff4d4f;
+    }
+
+    .log-item.step {
+      background: #fff7e6;
+      border-left-color: #ffa940;
+    }
+
+    .main-content {
+      display: flex;
+      flex-direction: row;
+      gap: 15px;
+      height: calc(100vh - 250px);
+      margin: 10px 0;
+    }
+
+    .notes-container {
+      width: 270px;
+      min-width: 270px;
+      overflow-y: auto;
+      padding-right: 10px;
+    }
+
+    .logs-container {
+      width: 130px;
+      min-width: 130px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .preview-images {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      padding: 8px;
+    }
+
+    .preview-image-wrapper {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1;
+      border-radius: 4px;
+      overflow: hidden;
+      cursor: move;
+      transition: all 0.2s ease;
+      background: white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      user-select: none;
+    }
+
+    .preview-image-wrapper img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      pointer-events: none;
+    }
+
+    .note-panel {
+      padding: 12px;
+      margin-bottom: 12px;
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: white;
+    }
+
+    .note-panel .preview {
+      margin: 15px 0;
+    }
+
+    .note-panel pre.body {
+      max-height: 150px;
+      padding: 10px;
+      background: #f5f5f5;
+      border-radius: 4px;
+      overflow-y: auto;
+      font-family: inherit;
+      white-space: pre-wrap;
+      margin: 10px 0;
+    }
+
+    .image-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    .image-controls button {
+      flex: 1;
+      min-width: 120px;
+    }
+
+    .btn-danger {
+      background: #ff4d4f;
+    }
+
+    .log-panel {
+      height: 100%;
+      overflow-y: auto;
+      padding: 10px;
+      border: 1px solid #eee;
+      border-radius: 4px;
+      background: #f9f9f9;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .preview pre.body {
+      white-space: pre-wrap;
+      font-family: inherit;
+      margin: 5px 0;
+      padding: 5px;
+      background: #f5f5f5;
+      border-radius: 4px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    /* 设置面板样式 */
+    .settings-panel {
+      width: 100%;
+      box-sizing: border-box;
+      margin: 10px 0;
+      padding: 15px;
+      background: #f9f9f9;
+      border: 1px solid #eee;
+      border-radius: 4px;
+    }
+
+    .setting-item {
+      margin-bottom: 10px;
+    }
+
+    .setting-item label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+
+    .interval-type {
+      display: flex;
+      gap: 20px;
+    }
+
+    .interval-type label {
+      font-weight: normal;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .range-inputs {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .setting-item input[type="number"] {
+      width: 80px;
+      padding: 5px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+
+    /* 笔记面板标题样式 */
+    .note-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .note-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: bold;
+      color: #333;
+    }
+
+    /* 删除笔记按钮样式 */
+    .delete-note {
+      padding: 5px 10px;
+      font-size: 14px;
+      background: #ff4d4f;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .delete-note:hover {
+      background: #ff7875;
+    }
+
+    /* 添加编辑区域样式 */
+    .preview-item {
+      margin-bottom: 15px;
+    }
+
+    .preview-item label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+      color: #333;
+    }
+
+    .preview-item input,
+    .preview-item textarea {
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .preview-item textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    .preview-item input:focus,
+    .preview-item textarea:focus {
+      border-color: #1890ff;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(24,144,255,0.2);
+    }
+
+    /* 添加帮助按钮和弹窗样式 */
+    .help-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    .help-content {
+      background: white;
+      width: 90%;
+      max-height: 90%;
+      padding: 20px;
+      border-radius: 8px;
+      overflow-y: auto;
+    }
+
+    .help-content h2 {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 0 0 20px 0;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .close-help {
+      cursor: pointer;
+      color: #666;
+    }
+
+    .help-section {
+      margin-bottom: 20px;
+    }
+
+    .help-section h3 {
+      color: #1890ff;
+      margin: 0 0 10px 0;
+    }
+
+    .help-section p {
+      margin: 5px 0;
+      color: #666;
+    }
+
+    .help-footer {
+      margin-top: 20px;
+      padding-top: 10px;
+      border-top: 1px solid #eee;
+      text-align: right;
+      color: #999;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span>小红书助手</span>
+    <div class="header-right">
+      <button class="help-btn" title="使用说明">?</button>
+      <button class="close-btn">✕</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- 文件选择 -->
+    <input type="file" id="fileInput" style="display: none;">
+    <button id="readFile" class="btn">选择文案文件</button>
+
+    <div class="main-content">
+      <!-- 左侧笔记区域 -->
+      <div class="notes-container">
+        <!-- 笔记面板会动态添加到这里 -->
+      </div>
+
+      <!-- 右侧日志面板 -->
+      <div class="logs-container">
+        <div class="log-panel" id="logPanel"></div>
+      </div>
+    </div>
+
+    <!-- 在开始运行按钮前添加设置区域 -->
+    <div class="settings-panel">
+      <div class="setting-item">
+        <label>发布间隔设置:</label>
+        <div class="interval-type">
+          <label>
+            <input type="radio" name="intervalType" value="fixed" checked>
+            固定间隔
+          </label>
+          <label>
+            <input type="radio" name="intervalType" value="random">
+            随机间隔
+          </label>
+        </div>
+      </div>
+      
+      <div class="setting-item fixed-interval">
+        <label>固定间隔时间(分钟):</label>
+        <input type="number" id="fixedInterval" value="5" min="1" max="60">
+      </div>
+      
+      <div class="setting-item random-interval" style="display: none;">
+        <label>随机间隔范围(分钟):</label>
+        <div class="range-inputs">
+          <input type="number" id="minInterval" value="5" min="1" max="60">
+          <span>至</span>
+          <input type="number" id="maxInterval" value="10" min="1" max="60">
+        </div>
+      </div>
+    </div>
+
+    <!-- 开始运行按钮 -->
+    <button id="startButton" class="btn">开始运行</button>
+  </div>
+
+  <!-- 添加使用说明弹窗 -->
+  <div class="help-modal" style="display: none;">
+    <div class="help-content">
+      <h2>使用说明 <span class="close-help">✕</span></h2>
+      
+      <div class="help-section">
+        <h3>1. 导入文案</h3>
+        <p>点击"选择文案文件"按钮，选择包含笔记内容的文本文件。每篇笔记用5个及以上破折号(-----)分隔。</p>
+      </div>
+
+      <div class="help-section">
+        <h3>2. 编辑内容</h3>
+        <p>- 可直接修改标题、正文、标签</p>
+        <p>- 标签需以#开头，用空格分隔</p>
+        <p>- 商品ID为可选项</p>
+      </div>
+
+      <div class="help-section">
+        <h3>3. 上传图片</h3>
+        <p>- 点击"选择图片文件"上传图片</p>
+        <p>- 可拖拽调整图片顺序</p>
+        <p>- 点击图片右上角×删除图片</p>
+      </div>
+
+      <div class="help-section">
+        <h3>4. 发布设置</h3>
+        <p>- 选择固定间隔或随机间隔</p>
+        <p>- 设置发布时间间隔（分钟）</p>
+        <p>- 点击"开始运行"自动发布</p>
+      </div>
+
+      <div class="help-section">
+        <h3>注意事项</h3>
+        <p>- 发布前请确保已登录小红书</p>
+        <p>- 建议使用5分钟以上的发布间隔</p>
+        <p>- 可随时查看右侧操作日志</p>
+      </div>
+
+      <div class="help-footer">
+        <p>开发者：七肆</p>
+        <p>版本：v2.1</p>
+      </div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html> 
