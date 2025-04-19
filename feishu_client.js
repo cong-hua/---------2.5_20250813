@@ -247,57 +247,115 @@ class FeishuBitableClient {
         
         // 提取标题字段
         let title = '';
-        if (fieldMapping.title && fields[fieldMapping.title]) {
-          title = fields[fieldMapping.title];
+        if (fieldMapping.title && fields[fieldMapping.title] !== undefined) {
+          const titleField = fields[fieldMapping.title];
+          
+          // 处理不同类型的标题字段
+          if (typeof titleField === 'string') {
+            title = titleField;
+          } else if (Array.isArray(titleField) && titleField.length > 0) {
+            // 如果是数组，尝试提取第一个元素
+            if (typeof titleField[0] === 'string') {
+              title = titleField[0];
+            } else if (titleField[0] && typeof titleField[0] === 'object' && titleField[0].text) {
+              // 多选字段格式
+              title = titleField[0].text;
+            }
+          } else if (titleField && typeof titleField === 'object' && titleField.text) {
+            // 单值多选字段
+            title = titleField.text;
+          }
         }
         
         // 提取正文字段
         let content = '';
-        if (fieldMapping.content && fields[fieldMapping.content]) {
-          content = fields[fieldMapping.content];
+        if (fieldMapping.content && fields[fieldMapping.content] !== undefined) {
+          const contentField = fields[fieldMapping.content];
+          
+          // 处理不同类型的正文字段
+          if (typeof contentField === 'string') {
+            content = contentField;
+          } else if (Array.isArray(contentField) && contentField.length > 0) {
+            // 如果是数组，尝试提取第一个元素
+            if (typeof contentField[0] === 'string') {
+              content = contentField[0];
+            } else if (contentField[0] && typeof contentField[0] === 'object' && contentField[0].text) {
+              // 多选字段格式
+              content = contentField[0].text;
+            }
+          } else if (contentField && typeof contentField === 'object' && contentField.text) {
+            // 单值多选字段
+            content = contentField.text;
+          }
         }
         
         // 提取标签字段
         let tags = [];
-        if (fieldMapping.tags && fields[fieldMapping.tags]) {
+        if (fieldMapping.tags && fields[fieldMapping.tags] !== undefined) {
           const tagField = fields[fieldMapping.tags];
           
-          // 标签可能是字符串、数组或对象
-          if (typeof tagField === 'string') {
-            // 处理字符串形式的标签
-            // 移除开头的 # 号并按空格或逗号分割
-            tags = tagField.split(/[,\s]+/)
-              .map(tag => tag.trim())
-              .filter(tag => tag)
-              .map(tag => tag.startsWith('#') ? tag : '#' + tag);
-          } else if (Array.isArray(tagField)) {
-            // 处理数组形式的标签
-            tags = tagField.map(tag => {
-              if (typeof tag === 'string') {
-                return tag.startsWith('#') ? tag : '#' + tag;
+          try {
+            // 标签可能是字符串、数组或对象
+            if (typeof tagField === 'string') {
+              // 处理字符串形式的标签
+              // 移除开头的 # 号并按空格或逗号分割
+              tags = tagField.split(/[,\s]+/)
+                .map(tag => tag.trim())
+                .filter(tag => tag)
+                .map(tag => tag.startsWith('#') ? tag : '#' + tag);
+            } else if (Array.isArray(tagField)) {
+              // 处理数组形式的标签
+              tags = [];
+              for (let i = 0; i < tagField.length; i++) {
+                const tag = tagField[i];
+                if (typeof tag === 'string') {
+                  tags.push(tag.startsWith('#') ? tag : '#' + tag);
+                } else if (typeof tag === 'object' && tag && tag.text) {
+                  tags.push(tag.text.startsWith('#') ? tag.text : '#' + tag.text);
+                }
               }
-              if (typeof tag === 'object' && tag && tag.text) {
-                return tag.text.startsWith('#') ? tag.text : '#' + tag.text;
+            } else if (typeof tagField === 'object' && tagField !== null) {
+              // 处理多选字段的情况
+              if (tagField.text) {
+                tags = [tagField.text.startsWith('#') ? tagField.text : '#' + tagField.text];
+              } else if (tagField.options) {
+                tags = [];
+                for (let i = 0; i < tagField.options.length; i++) {
+                  const opt = tagField.options[i];
+                  const text = opt.text || opt.name || '';
+                  if (text) {
+                    tags.push(text.startsWith('#') ? text : '#' + text);
+                  }
+                }
               }
-              return '';
-            }).filter(Boolean);
-          } else if (typeof tagField === 'object' && tagField !== null) {
-            // 处理多选字段的情况
-            if (tagField.text) {
-              tags = [tagField.text.startsWith('#') ? tagField.text : '#' + tagField.text];
-            } else if (tagField.options) {
-              tags = tagField.options.map(opt => {
-                const text = opt.text || opt.name || '';
-                return text.startsWith('#') ? text : '#' + text;
-              });
             }
+          } catch (tagError) {
+            console.error('处理标签时出错:', tagError, '标签字段值:', tagField);
+            // 出错时使用空数组
+            tags = [];
           }
         }
         
         // 提取商品ID
         let productId = '';
         if (fieldMapping.productId && fields[fieldMapping.productId]) {
-          productId = fields[fieldMapping.productId];
+          const productIdField = fields[fieldMapping.productId];
+          
+          // 处理不同类型的商品ID字段
+          if (typeof productIdField === 'string') {
+            productId = productIdField;
+          } else if (Array.isArray(productIdField) && productIdField.length > 0) {
+            // 如果是数组，尝试提取第一个元素
+            if (typeof productIdField[0] === 'string') {
+              productId = productIdField[0];
+            } else if (productIdField[0] && typeof productIdField[0] === 'object' && productIdField[0].text) {
+              // 多选字段格式
+              productId = productIdField[0].text;
+            }
+          } else if (productIdField && typeof productIdField === 'object' && productIdField.text) {
+            // 单值多选字段
+            productId = productIdField.text;
+          }
         }
         
         // 提取图片字段
@@ -305,36 +363,64 @@ class FeishuBitableClient {
         if (fieldMapping.images && fields[fieldMapping.images]) {
           const imageField = fields[fieldMapping.images];
           
-          // 尝试从不同类型的字段中提取图片URL
-          if (typeof imageField === 'string') {
-            // 字符串类型，可能包含多个URL
-            imageUrls = imageField.split(/[,;\s]+/).filter(Boolean);
-          } else if (Array.isArray(imageField)) {
-            // 数组类型
-            imageField.forEach(item => {
-              if (typeof item === 'string') {
-                imageUrls.push(item);
-              } else if (item && item.url) {
-                imageUrls.push(item.url);
-              } else if (item && item.file && item.file.url) {
-                imageUrls.push(item.file.url);
+          try {
+            // 尝试从不同类型的字段中提取图片URL
+            if (typeof imageField === 'string') {
+              // 字符串类型，可能包含多个URL
+              imageUrls = imageField.split(/[,;\s]+/).filter(Boolean);
+            } else if (Array.isArray(imageField)) {
+              // 数组类型
+              for (let i = 0; i < imageField.length; i++) {
+                const item = imageField[i];
+                if (typeof item === 'string') {
+                  imageUrls.push(item);
+                } else if (item && item.url) {
+                  imageUrls.push(item.url);
+                } else if (item && item.file && item.file.url) {
+                  imageUrls.push(item.file.url);
+                } else if (item && item.tmp_url) {
+                  // 处理临时URL
+                  imageUrls.push(item.tmp_url);
+                }
               }
-            });
-          } else if (imageField && typeof imageField === 'object') {
-            // 对象类型，可能是附件字段
-            if (imageField.url) {
-              imageUrls.push(imageField.url);
-            } else if (imageField.file && imageField.file.url) {
-              imageUrls.push(imageField.file.url);
+            } else if (imageField && typeof imageField === 'object') {
+              // 对象类型，可能是附件字段
+              if (imageField.url) {
+                imageUrls.push(imageField.url);
+              } else if (imageField.file && imageField.file.url) {
+                imageUrls.push(imageField.file.url);
+              } else if (imageField.tmp_url) {
+                imageUrls.push(imageField.tmp_url);
+              }
             }
+            
+            // 检查其他可能包含图片的字段 - 比如"成品"字段
+            const productImages = fields["成品"] || [];
+            if (Array.isArray(productImages) && productImages.length > 0) {
+              // 处理"成品"字段中的图片
+              for (let i = 0; i < productImages.length; i++) {
+                const item = productImages[i];
+                if (item && (item.url || item.tmp_url)) {
+                  imageUrls.push(item.url || item.tmp_url);
+                }
+              }
+            }
+            
+          } catch (imageError) {
+            console.error('处理图片字段时出错:', imageError, '图片字段值:', imageField);
+            imageUrls = [];
           }
+        }
+        
+        if (imageUrls.length > 0) {
+          console.log(`记录 #${index} 找到 ${imageUrls.length} 张图片`);
         }
         
         // 构建笔记对象
         return {
           recordId: record_id,
           title,
-          content,
+          body: content, // 使用body而不是content作为字段名
           tags,
           productId,
           imageUrls,
@@ -439,6 +525,7 @@ class FeishuBitableClient {
    */
   async preloadImages(notes) {
     if (!notes || !Array.isArray(notes) || notes.length === 0) {
+      console.log('没有笔记数据，跳过图片预加载');
       return [];
     }
     
@@ -453,11 +540,11 @@ class FeishuBitableClient {
       };
       
       // 计算需要加载的图片总数
-      notes.forEach(note => {
+      for (const note of notes) {
         if (note.imageUrls && Array.isArray(note.imageUrls)) {
           progress.total += note.imageUrls.length;
         }
-      });
+      }
       
       console.log(`开始预加载 ${progress.total} 张图片`);
       
@@ -465,14 +552,36 @@ class FeishuBitableClient {
       for (let i = 0; i < notes.length; i++) {
         const note = notes[i];
         
+        // 确保images数组存在
+        if (!note.images) {
+          note.images = [];
+        }
+        
+        // 跳过没有图片URL的笔记
         if (!note.imageUrls || !Array.isArray(note.imageUrls) || note.imageUrls.length === 0) {
+          console.log(`笔记 ${i+1}/${notes.length} 没有图片，跳过`);
           continue;
         }
         
-        note.images = [];
+        console.log(`处理笔记 ${i+1}/${notes.length} 的图片，共 ${note.imageUrls.length} 张`);
         
+        // 处理每张图片
         for (let j = 0; j < note.imageUrls.length; j++) {
           const url = note.imageUrls[j];
+          
+          if (!url) {
+            console.log(`笔记 ${i+1} 的第 ${j+1} 张图片URL无效，跳过`);
+            progress.failed++;
+            
+            // 添加失败的图片信息
+            note.images.push({
+              originalUrl: url,
+              success: false,
+              error: '无效的图片URL',
+              blobUrl: null
+            });
+            continue;
+          }
           
           try {
             console.log(`正在加载笔记 ${i+1}/${notes.length} 的第 ${j+1}/${note.imageUrls.length} 张图片`);
@@ -487,13 +596,23 @@ class FeishuBitableClient {
             note.images.push({
               blob,
               url: objectUrl,
-              originalUrl: url
+              originalUrl: url,
+              success: true,
+              blobUrl: objectUrl  // 添加blobUrl属性以匹配popup.js中期望的格式
             });
             
             progress.loaded++;
           } catch (error) {
             console.error(`加载图片失败: ${url}`, error);
             progress.failed++;
+            
+            // 添加失败的图片信息，包含success: false标志
+            note.images.push({
+              originalUrl: url,
+              success: false,
+              error: error.message,
+              blobUrl: null
+            });
           }
           
           // 更新进度
@@ -507,7 +626,10 @@ class FeishuBitableClient {
       return notes;
     } catch (error) {
       console.error('预加载图片失败:', error);
-      throw error;
+      console.error('错误堆栈:', error.stack);
+      // 出错时仍然返回原始笔记，避免整体失败
+      console.log('返回未预加载图片的原始笔记');
+      return notes;
     }
   }
   
@@ -565,4 +687,4 @@ class FeishuBitableClient {
 
 // 导出实例
 const feishuClient = new FeishuBitableClient();
-window.feishuClient = feishuClient; 
+window.feishuClient = feishuClient;

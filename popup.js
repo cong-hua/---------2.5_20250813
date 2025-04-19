@@ -2453,27 +2453,69 @@ async function importFromFeishu() {
     // 转换为插件使用的格式
     notes = notesWithImages.map(note => {
       // 处理标签，确保每个标签都带有#号
-      const tags = note.tags.map(tag => tag.startsWith('#') ? tag : `#${tag}`).join(' ');
+      let tags = [];
       
-      // 收集图片URL
+      // 检查tags的类型并相应处理
+      if (note.tags) {
+        if (Array.isArray(note.tags)) {
+          // 如果已经是数组，确保每个标签有#前缀
+          tags = note.tags.map(tag => tag.startsWith('#') ? tag : `#${tag}`);
+        } else if (typeof note.tags === 'string') {
+          // 如果是字符串，按空格分割，确保每个都有#
+          tags = note.tags.split(/[\s,，]+/)
+            .map(tag => tag.trim())
+            .filter(Boolean)
+            .map(tag => tag.startsWith('#') ? tag : `#${tag}`);
+        }
+      }
+      
+      // 收集图片URL - 修改为数组格式
       const images = [];
       const imageUrls = {};
       
-      if (note.images && note.images.length > 0) {
-        note.images.forEach((img, index) => {
-          if (img.url) {
+      if (note.images && Array.isArray(note.images) && note.images.length > 0) {
+        // 从preloadImages函数处理后的格式中提取图片
+        for (let index = 0; index < note.images.length; index++) {
+          const img = note.images[index];
+          if (img) {
+            // 确保提取正确的图片URL，处理不同的属性名
+            const imgUrl = img.blobUrl || img.url;
+            if (imgUrl) {
+              const imgId = `img_${Date.now()}_${index}`;
+              images.push(imgId);
+              imageUrls[imgId] = imgUrl;
+            }
+          }
+        }
+      } else if (note.imageUrls && Array.isArray(note.imageUrls) && note.imageUrls.length > 0) {
+        // 兼容直接提供imageUrls数组的情况
+        for (let index = 0; index < note.imageUrls.length; index++) {
+          const url = note.imageUrls[index];
+          if (url) {
             const imgId = `img_${Date.now()}_${index}`;
             images.push(imgId);
-            imageUrls[imgId] = img.url;
+            imageUrls[imgId] = url;
           }
-        });
+        }
+      }
+      
+      // 处理商品ID - 可能是对象或字符串
+      let productIdValue = '';
+      if (note.productId) {
+        if (typeof note.productId === 'object' && note.productId.id) {
+          // 商品ID是对象格式 {id: "xxx", type: "goods"}
+          productIdValue = note.productId.id;
+        } else {
+          // 商品ID是字符串格式
+          productIdValue = note.productId;
+        }
       }
       
       return {
         title: note.title || '无标题笔记',
-        content: note.content || '',
-        tags: tags,
-        productId: note.productId || '',
+        body: note.body || note.content || '', // 使用body字段，如果没有则使用content字段
+        tags: tags, // 确保tags是数组
+        productId: productIdValue, // 使用处理后的商品ID
         images: images,
         imageUrls: imageUrls
       };
