@@ -1284,6 +1284,197 @@ class FeishuBitableClient {
   }
   
   /**
+   * 更新记录的发布状态为已发布
+   * @param {string} recordId 记录ID
+   * @returns {Promise<Object>} 更新结果
+   */
+  async updateRecordPublishStatus(recordId) {
+    try {
+      if (!recordId) {
+        console.error('[updateRecordPublishStatus] 未提供记录ID');
+        return { success: false, error: '未提供记录ID' };
+      }
+      
+      console.log(`[updateRecordPublishStatus] 准备更新记录 ${recordId} 的发布状态为已发布`);
+      
+      // 检查配置是否完整
+      const { appToken, tableId } = this.config;
+      if (!appToken || !tableId) {
+        const missingConfig = [];
+        if (!appToken) missingConfig.push('appToken');
+        if (!tableId) missingConfig.push('tableId');
+        const errorMsg = `缺少必要的配置: ${missingConfig.join(', ')}`;
+        console.error(`[updateRecordPublishStatus] ${errorMsg}`);
+        return { success: false, error: errorMsg };
+      }
+      
+      // 尝试获取token
+      let token;
+      try {
+        token = await this.getTenantAccessToken();
+        if (!token) {
+          const errorMsg = '获取访问令牌失败';
+          console.error(`[updateRecordPublishStatus] ${errorMsg}`);
+          return { success: false, error: errorMsg };
+        }
+      } catch (tokenError) {
+        console.error(`[updateRecordPublishStatus] 获取访问令牌失败:`, tokenError);
+        return { 
+          success: false, 
+          error: `获取访问令牌失败: ${tokenError.message}`,
+          tokenError
+        };
+      }
+      
+      // 尝试多种可能的字段名
+      const possibleFieldNames = [
+        "是否发布", 
+        "已发布",
+        "已推送", 
+        "发布状态", 
+        "状态", 
+        "Is Published",
+        "published"
+      ];
+      
+      // 先尝试使用默认字段名
+      let fields = {
+        "是否发布": true
+      };
+      
+      try {
+        // 发送更新请求
+        console.log(`[updateRecordPublishStatus] 正在使用字段名"是否发布"更新记录 ${recordId}`);
+        const result = await this.updateRecordStatus(recordId, fields);
+        
+        console.log(`[updateRecordPublishStatus] 成功更新记录 ${recordId} 的发布状态`);
+        return {
+          success: true,
+          recordId,
+          result,
+          fieldName: "是否发布"
+        };
+      } catch (firstError) {
+        console.warn(`[updateRecordPublishStatus] 使用默认字段名更新失败:`, firstError);
+        
+        // 尝试检查错误信息，判断是否是字段不存在的问题
+        const isFieldNotFoundError = 
+          firstError.message.includes('字段') && 
+          (firstError.message.includes('不存在') || 
+           firstError.message.includes('不合法') || 
+           firstError.message.includes('not found') || 
+           firstError.message.includes('invalid'));
+        
+        // 如果不是字段问题，直接返回错误
+        if (!isFieldNotFoundError) {
+          return {
+            success: false,
+            recordId,
+            error: firstError.message,
+            originalError: firstError
+          };
+        }
+        
+        // 可能是字段名不匹配，尝试其他可能的字段名
+        console.log(`[updateRecordPublishStatus] 默认字段名不存在，尝试其他可能的字段名`);
+        
+        // 先尝试获取记录，检查可用字段
+        try {
+          const url = `https://open.feishu.cn/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records/${recordId}`;
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          const recordData = await response.json();
+          
+          if (recordData.code === 0 && recordData.data && recordData.data.record && recordData.data.record.fields) {
+            console.log(`[updateRecordPublishStatus] 成功获取记录字段:`, recordData.data.record.fields);
+            
+            // 检查记录中存在的字段
+            const availableFields = Object.keys(recordData.data.record.fields);
+            console.log(`[updateRecordPublishStatus] 记录包含字段:`, availableFields);
+            
+            // 找到匹配的字段名
+            for (const fieldName of possibleFieldNames) {
+              if (availableFields.includes(fieldName)) {
+                console.log(`[updateRecordPublishStatus] 找到匹配的字段名: ${fieldName}`);
+                
+                // 尝试更新找到的字段
+                const customFields = {};
+                customFields[fieldName] = true;
+                
+                try {
+                  const customResult = await this.updateRecordStatus(recordId, customFields);
+                  console.log(`[updateRecordPublishStatus] 成功使用字段 "${fieldName}" 更新记录`);
+                  
+                  return {
+                    success: true,
+                    recordId,
+                    result: customResult,
+                    fieldName: fieldName
+                  };
+                } catch (fieldError) {
+                  console.error(`[updateRecordPublishStatus] 使用字段 "${fieldName}" 更新失败:`, fieldError);
+                  // 继续尝试下一个字段名
+                }
+              }
+            }
+          }
+        } catch (recordError) {
+          console.error(`[updateRecordPublishStatus] 获取记录字段失败:`, recordError);
+          // 获取记录失败，继续尝试所有可能的字段名
+        }
+        
+        // 如果没有找到匹配的字段，尝试所有可能的字段名
+        for (const fieldName of possibleFieldNames) {
+          if (fieldName === "是否发布") continue; // 跳过已尝试的默认字段名
+          
+          const customFields = {};
+          customFields[fieldName] = true;
+          
+          try {
+            console.log(`[updateRecordPublishStatus] 尝试使用字段 "${fieldName}" 更新记录`);
+            const customResult = await this.updateRecordStatus(recordId, customFields);
+            
+            console.log(`[updateRecordPublishStatus] 成功使用字段 "${fieldName}" 更新记录`);
+            return {
+              success: true,
+              recordId,
+              result: customResult,
+              fieldName: fieldName
+            };
+          } catch (fieldError) {
+            console.error(`[updateRecordPublishStatus] 使用字段 "${fieldName}" 更新失败:`, fieldError);
+            // 继续尝试下一个字段名
+          }
+        }
+        
+        // 所有字段名都尝试失败
+        console.error(`[updateRecordPublishStatus] 所有可能的字段名都尝试失败`);
+        return {
+          success: false,
+          recordId,
+          error: '无法找到合适的"发布状态"字段，请确认飞书多维表格中存在对应字段',
+          triedFields: possibleFieldNames,
+          originalError: firstError
+        };
+      }
+    } catch (error) {
+      console.error(`[updateRecordPublishStatus] 更新记录 ${recordId} 的发布状态失败:`, error);
+      return {
+        success: false,
+        recordId,
+        error: error.message,
+        stackTrace: error.stack
+      };
+    }
+  }
+  
+  /**
    * 处理图片URL
    * @param {string} imageUrl 图片URL
    * @param {string} noteId 笔记ID
