@@ -50,6 +50,42 @@
       font-size: 18px;
       font-weight: bold;
       color: var(--primary-color);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .feishu-config-btn {
+      width: auto;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 20px;
+      background: #e6f3ff;
+      border: 1px solid #3370ff;
+      color: #3370ff;
+      cursor: pointer;
+      transition: all 0.2s;
+      padding: 0 12px;
+      margin-left: 15px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .feishu-config-btn:hover {
+      background: #3370ff;
+      color: white;
+    }
+
+    .feishu-config-btn:hover svg {
+      stroke: white;
+    }
+
+    .feishu-config-btn svg {
+      width: 16px;
+      height: 16px;
+      margin-right: 6px;
     }
 
     .header-right {
@@ -634,7 +670,17 @@
 </head>
 <body>
   <div class="header">
-    <div class="header-left">小红书发布助手</div>
+    <div class="header-left">
+      小红书发布助手
+      <button class="feishu-config-btn" title="配置飞书表格">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3370ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"></path>
+          <path d="M12 16v-4"></path>
+          <path d="M12 8h.01"></path>
+        </svg>
+        配置飞书
+      </button>
+    </div>
     <div class="header-right">
       <button class="help-btn" title="使用说明">?</button>
       <button class="close-btn">✕</button>
@@ -652,6 +698,16 @@
         <line x1="9" y1="15" x2="15" y2="15"></line>
       </svg>
       选择文案文件
+    </button>
+    
+    <!-- 添加飞书导入按钮 -->
+    <button id="importFeishu" class="btn-with-icon" style="background-color: #3370ff;">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="7 10 12 15 17 10"></polyline>
+        <line x1="12" y1="15" x2="12" y2="3"></line>
+      </svg>
+      从飞书导入
     </button>
 
     <div class="main-content">
@@ -722,6 +778,15 @@
       <div class="help-section">
         <h3>1. 导入文案</h3>
         <p>点击"选择文案文件"按钮，选择包含笔记内容的文本文件。每篇笔记用5个及以上破折号(-----)分隔。</p>
+        <p>也可以点击"从飞书导入"按钮，直接从飞书多维表格中获取笔记内容和图片。</p>
+      </div>
+
+      <div class="help-section">
+        <h3>1.1 飞书导入配置</h3>
+        <p>- 配置飞书多维表格的AppToken和表格ID</p>
+        <p>- 配置飞书应用的App ID和App Secret</p>
+        <p>- 确保多维表格中包含title(标题)、content(内容)、tags(标签)等字段</p>
+        <p>- 图片会自动从多维表格的附件字段中获取并导入</p>
       </div>
 
       <div class="help-section">

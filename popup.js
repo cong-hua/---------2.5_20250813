@@ -6,6 +6,198 @@ let isPublishing = false;
 let selectedImages = [];
 let imagePreviewUrls = {};
 
+// 添加飞书配置模态框HTML
+const feishuModalHtml = `
+<div id="feishuModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>飞书多维表格配置</h2>
+      <span class="close-modal">&times;</span>
+    </div>
+    <div class="form-group">
+      <label for="appId">App ID:</label>
+      <input type="text" id="appId" placeholder="输入飞书应用的App ID">
+    </div>
+    <div class="form-group">
+      <label for="appSecret">App Secret:</label>
+      <input type="text" id="appSecret" placeholder="输入飞书应用的App Secret">
+    </div>
+    <div class="form-group">
+      <label for="appToken">多维表格AppToken:</label>
+      <input type="text" id="appToken" placeholder="输入飞书多维表格的AppToken">
+    </div>
+    <div class="form-group">
+      <label for="tableId">表格ID:</label>
+      <input type="text" id="tableId" placeholder="输入表格ID">
+    </div>
+    <div class="form-group">
+      <label for="viewId">视图ID:</label>
+      <input type="text" id="viewId" placeholder="输入视图ID（可选）">
+    </div>
+    <div class="feishu-btn-group">
+      <button id="saveFeishuConfig" class="btn-primary">保存配置</button>
+      <button id="testFeishuConnection" class="btn-secondary">测试连接</button>
+    </div>
+    <div id="feishuStatus" class="status-message"></div>
+  </div>
+</div>
+`;
+
+// 添加飞书模态框CSS
+const feishuModalCss = `
+<style>
+  .modal {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0, 0, 0, 0.4);
+  }
+  
+  .modal-content {
+    background-color: #fefefe;
+    margin: 10% auto;
+    padding: 20px;
+    border: 1px solid #ddd;
+    border-radius: 12px;
+    width: 80%;
+    max-width: 500px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  }
+  
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+  }
+  
+  .modal-header h2 {
+    margin: 0;
+    color: #3370ff;
+    font-size: 20px;
+  }
+  
+  .close-modal {
+    color: #aaa;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  
+  .close-modal:hover {
+    color: #000;
+  }
+  
+  .form-group {
+    margin-bottom: 15px;
+  }
+  
+  .form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+  }
+  
+  .form-group input {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  
+  .feishu-btn-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+  }
+  
+  .btn-primary {
+    background-color: #3370ff;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 500;
+    flex: 1;
+  }
+  
+  .btn-secondary {
+    background-color: #f0f0f0;
+    color: #333;
+    border: 1px solid #ddd;
+    padding: 10px 15px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 500;
+    flex: 1;
+  }
+  
+  .btn-primary:hover {
+    background-color: #2860e0;
+  }
+  
+  .btn-secondary:hover {
+    background-color: #e0e0e0;
+  }
+  
+  .status-message {
+    margin-top: 15px;
+    padding: 10px;
+    border-radius: 6px;
+    display: none;
+  }
+  
+  .status-message.success {
+    background-color: #f6ffed;
+    border: 1px solid #b7eb8f;
+    color: #52c41a;
+    display: block;
+  }
+  
+  .status-message.error {
+    background-color: #fff2f0;
+    border: 1px solid #ffccc7;
+    color: #ff4d4f;
+    display: block;
+  }
+  
+  .status-message.loading {
+    background-color: #e6f7ff;
+    border: 1px solid #91d5ff;
+    color: #1890ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .loading-spinner {
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #3370ff;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    animation: spin 1s linear infinite;
+    margin-right: 10px;
+  }
+  
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+</style>
+`;
+
 // 修改发布配置对象
 const publishConfig = {
   intervalType: 'fixed', // 'fixed' 或 'random'
@@ -28,6 +220,54 @@ async function saveState() {
     await chrome.storage.local.set({ popupState: state });
   } catch (error) {
     console.error('保存状态失败:', error);
+  }
+}
+
+// 飞书配置相关变量
+let feishuConfig = {
+  appId: '',
+  appSecret: '',
+  appToken: '',
+  tableId: '',
+  viewId: ''
+};
+
+// 保存飞书配置
+async function saveFeishuConfig() {
+  try {
+    await chrome.storage.local.set({ feishuConfig });
+    console.log('飞书配置已保存');
+  } catch (error) {
+    console.error('保存飞书配置失败:', error);
+  }
+}
+
+// 恢复飞书配置
+async function restoreFeishuConfig() {
+  try {
+    const data = await chrome.storage.local.get(['feishuConfig']);
+    if (data.feishuConfig) {
+      feishuConfig = data.feishuConfig;
+      
+      // 填充表单
+      if (document.getElementById('appId')) {
+        document.getElementById('appId').value = feishuConfig.appId || '';
+      }
+      if (document.getElementById('appSecret')) {
+        document.getElementById('appSecret').value = feishuConfig.appSecret || '';
+      }
+      if (document.getElementById('appToken')) {
+        document.getElementById('appToken').value = feishuConfig.appToken || '';
+      }
+      if (document.getElementById('tableId')) {
+        document.getElementById('tableId').value = feishuConfig.tableId || '';
+      }
+      if (document.getElementById('viewId')) {
+        document.getElementById('viewId').value = feishuConfig.viewId || '';
+      }
+    }
+  } catch (error) {
+    console.error('恢复飞书配置失败:', error);
   }
 }
 
@@ -85,6 +325,18 @@ function setupStateListeners() {
   document.getElementById('fixedInterval').addEventListener('change', saveState);
   document.getElementById('minInterval').addEventListener('change', saveState);
   document.getElementById('maxInterval').addEventListener('change', saveState);
+  
+  // 监听飞书配置变化
+  const feishuInputs = ['appId', 'appSecret', 'appToken', 'tableId', 'viewId'];
+  feishuInputs.forEach(id => {
+    const input = document.getElementById(id);
+    if (input) {
+      input.addEventListener('change', () => {
+        feishuConfig[id] = input.value.trim();
+        saveFeishuConfig();
+      });
+    }
+  });
 }
 
 // 改进日志函数
@@ -139,15 +391,41 @@ function addLog(message, type = 'info', details = '') {
 // 等待页面加载完成
 document.addEventListener('DOMContentLoaded', async () => {
   await restoreState();
+  await restoreFeishuConfig(); // 恢复飞书配置
   setupStateListeners();
   
   console.log('页面加载完成');
-
+  
   // 选择文件按钮
   const fileInput = document.getElementById('fileInput');
   const readFileBtn = document.getElementById('readFile');
   const startButton = document.getElementById('startButton');
   const stopButton = document.getElementById('stopButton');
+  const importFeishuBtn = document.getElementById('importFeishu');
+  
+  // 绑定飞书导入按钮事件
+  if (importFeishuBtn) {
+    importFeishuBtn.addEventListener('click', async () => {
+      console.log('点击从飞书导入');
+      try {
+        // 检查是否已配置飞书
+        if (!feishuConfig.appId || !feishuConfig.appSecret || !feishuConfig.appToken || !feishuConfig.tableId) {
+          addLog('请先配置飞书多维表格参数', 'error');
+          // 打开配置模态框
+          const configBtn = document.querySelector('.feishu-config-btn');
+          if (configBtn) {
+            configBtn.click();
+          }
+          return;
+        }
+        
+        // 直接调用导入函数
+        await importFromFeishu();
+      } catch (error) {
+        addLog(`导入失败: ${error.message}`, 'error');
+      }
+    });
+  }
   
   if (readFileBtn && fileInput) {
     console.log('找到文件按钮');
@@ -522,6 +800,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateButtonStatus(state.isPublishing);
     }
   });
+
+  // 初始化飞书模态框
+  initFeishuModal();
 });
 
 // 辅助函数：更新按钮状态
@@ -1993,4 +2274,201 @@ function setupMessageListener() {
       updateButtonStatus(false);
     }
   });
+}
+
+// 初始化飞书模态框
+function initFeishuModal() {
+  // 添加模态框到DOM
+  const modalContainer = document.createElement('div');
+  modalContainer.innerHTML = feishuModalHtml + feishuModalCss;
+  document.body.appendChild(modalContainer);
+  
+  // 获取模态框元素
+  const modal = document.getElementById('feishuModal');
+  const closeBtn = modal.querySelector('.close-modal');
+  const saveConfigBtn = document.getElementById('saveFeishuConfig');
+  const testConnectionBtn = document.getElementById('testFeishuConnection');
+  const statusDiv = document.getElementById('feishuStatus');
+  
+  // 绑定关闭按钮事件
+  closeBtn.onclick = function() {
+    modal.style.display = 'none';
+  };
+  
+  // 点击模态框外部关闭
+  window.onclick = function(event) {
+    if (event.target === modal) {
+      modal.style.display = 'none';
+    }
+  };
+  
+  // 绑定保存配置按钮事件
+  saveConfigBtn.onclick = async function() {
+    // 获取表单数据
+    feishuConfig.appId = document.getElementById('appId').value.trim();
+    feishuConfig.appSecret = document.getElementById('appSecret').value.trim();
+    feishuConfig.appToken = document.getElementById('appToken').value.trim();
+    feishuConfig.tableId = document.getElementById('tableId').value.trim();
+    feishuConfig.viewId = document.getElementById('viewId').value.trim();
+    
+    // 验证必填字段
+    if (!feishuConfig.appId || !feishuConfig.appSecret || !feishuConfig.appToken || !feishuConfig.tableId) {
+      statusDiv.className = 'status-message error';
+      statusDiv.textContent = '错误：除视图ID外，所有字段都必须填写';
+      return;
+    }
+    
+    try {
+      // 保存配置
+      await saveFeishuConfig();
+      
+      // 显示成功消息
+      statusDiv.className = 'status-message success';
+      statusDiv.textContent = '配置已保存成功';
+      
+      // 3秒后隐藏消息
+      setTimeout(() => {
+        statusDiv.style.display = 'none';
+      }, 3000);
+    } catch (error) {
+      // 显示错误信息
+      statusDiv.className = 'status-message error';
+      statusDiv.textContent = `错误：${error.message}`;
+    }
+  };
+  
+  // 绑定测试连接按钮事件
+  testConnectionBtn.onclick = async function() {
+    // 显示加载状态
+    statusDiv.className = 'status-message loading';
+    statusDiv.innerHTML = '<div class="loading-spinner"></div> 正在测试连接，请稍候...';
+    statusDiv.style.display = 'flex';
+    
+    // 获取表单数据
+    feishuConfig.appId = document.getElementById('appId').value.trim();
+    feishuConfig.appSecret = document.getElementById('appSecret').value.trim();
+    feishuConfig.appToken = document.getElementById('appToken').value.trim();
+    feishuConfig.tableId = document.getElementById('tableId').value.trim();
+    feishuConfig.viewId = document.getElementById('viewId').value.trim();
+    
+    // 验证必填字段
+    if (!feishuConfig.appId || !feishuConfig.appSecret || !feishuConfig.appToken || !feishuConfig.tableId) {
+      statusDiv.className = 'status-message error';
+      statusDiv.textContent = '错误：除视图ID外，所有字段都必须填写';
+      return;
+    }
+    
+    try {
+      // 初始化飞书客户端
+      const feishuClient = window.feishuClient;
+      feishuClient.init({
+        appId: feishuConfig.appId,
+        appSecret: feishuConfig.appSecret,
+        appToken: feishuConfig.appToken,
+        tableId: feishuConfig.tableId,
+        viewId: feishuConfig.viewId || undefined
+      });
+      
+      // 尝试获取token
+      await feishuClient.getTenantAccessToken();
+      
+      // 尝试获取记录数量
+      const options = { limit: 1 };
+      if (feishuConfig.viewId) {
+        options.viewId = feishuConfig.viewId;
+      }
+      const records = await feishuClient.getAllRecords(options);
+      
+      // 显示成功消息
+      statusDiv.className = 'status-message success';
+      statusDiv.textContent = `连接成功！检测到记录总数：${records.total || 0}`;
+    } catch (error) {
+      // 显示错误信息
+      statusDiv.className = 'status-message error';
+      statusDiv.textContent = `连接失败：${error.message}`;
+    }
+  };
+  
+  // 绑定配置按钮事件
+  const configBtn = document.querySelector('.feishu-config-btn');
+  if (configBtn) {
+    configBtn.addEventListener('click', async () => {
+      // 恢复飞书配置
+      await restoreFeishuConfig();
+      // 显示模态框
+      modal.style.display = 'block';
+    });
+  }
+}
+
+// 从飞书导入数据
+async function importFromFeishu() {
+  try {
+    addLog('开始从飞书导入数据...', 'info');
+    
+    // 初始化飞书客户端
+    const feishuClient = window.feishuClient;
+    feishuClient.init({
+      appId: feishuConfig.appId,
+      appSecret: feishuConfig.appSecret,
+      appToken: feishuConfig.appToken,
+      tableId: feishuConfig.tableId,
+      viewId: feishuConfig.viewId || undefined  // 如果有视图ID则使用，否则为undefined
+    });
+    
+    // 获取所有记录并转换为笔记
+    addLog('正在获取飞书多维表格数据...', 'step');
+    const fetchedNotes = await feishuClient.fetchNotes();
+    
+    if (!fetchedNotes || fetchedNotes.length === 0) {
+      throw new Error('未找到任何笔记数据');
+    }
+    
+    addLog(`成功获取 ${fetchedNotes.length} 篇笔记`, 'success');
+    
+    // 预加载图片
+    addLog('正在预加载图片...', 'step');
+    const notesWithImages = await feishuClient.preloadImages(fetchedNotes);
+    
+    // 转换为插件使用的格式
+    notes = notesWithImages.map(note => {
+      // 处理标签，确保每个标签都带有#号
+      const tags = note.tags.map(tag => tag.startsWith('#') ? tag : `#${tag}`).join(' ');
+      
+      // 收集图片URL
+      const images = [];
+      const imageUrls = {};
+      
+      if (note.images && note.images.length > 0) {
+        note.images.forEach((img, index) => {
+          if (img.url) {
+            const imgId = `img_${Date.now()}_${index}`;
+            images.push(imgId);
+            imageUrls[imgId] = img.url;
+          }
+        });
+      }
+      
+      return {
+        title: note.title || '无标题笔记',
+        content: note.content || '',
+        tags: tags,
+        productId: note.productId || '',
+        images: images,
+        imageUrls: imageUrls
+      };
+    });
+    
+    // 保存状态
+    await saveState();
+    
+    // 更新UI
+    updateNotePanels();
+    
+    addLog(`成功导入 ${notes.length} 篇笔记，包含 ${notesWithImages.reduce((count, note) => count + (note.images ? note.images.length : 0), 0)} 张图片`, 'success');
+  } catch (error) {
+    console.error('从飞书导入数据失败:', error);
+    addLog(`从飞书导入数据失败: ${error.message}`, 'error');
+    throw error;
+  }
 } 
