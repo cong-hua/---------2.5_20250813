@@ -913,6 +913,12 @@ async function publishNote(noteData, index) {
     const productId = noteData.productId || '';
     addLog(`正在处理笔记${index + 1}, 商品ID是: ${productId}`);
 
+    // 检查并记录商品规格
+    const productSpec = noteData.productSpec || '';
+    if (productSpec) {
+      addLog(`笔记${index + 1}的商品规格是: ${productSpec}`);
+    }
+
     // 获取当前标签页
     let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     
@@ -1006,7 +1012,7 @@ async function publishNote(noteData, index) {
     addLog('开始填写内容');
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      function: (contentData, productId) => {
+      function: (contentData, productId, productSpec) => {
         return new Promise((resolve) => {
           setTimeout(() => {
             // 填写标题
@@ -1023,8 +1029,14 @@ async function publishNote(noteData, index) {
               editor.focus();
               editor.innerHTML = '';
 
+              // 处理正文内容 - 如果有商品规格，添加到正文末尾
+              let bodyContent = contentData.body;
+              if (productSpec) {
+                bodyContent += `\n\n商品规格: ${productSpec}`;
+              }
+
               // 分行处理正文，保留空行
-              const lines = contentData.body.split('\n');
+              const lines = bodyContent.split('\n');
               let currentLine = 0;
 
               function typeLine() {
@@ -1168,7 +1180,8 @@ async function publishNote(noteData, index) {
       },
       args: [
         { title: noteData.title, body: noteData.body, tags: noteData.tags },
-        noteData.productId
+        noteData.productId,
+        noteData.productSpec
       ]
     });
 
@@ -1471,6 +1484,17 @@ function updateNotePanels() {
       productLink.style.opacity = '0.5';
     }
 
+    // 添加商品规格显示
+    if (note.productSpec) {
+      const productSpecSpan = document.createElement('span');
+      productSpecSpan.className = 'product-spec';
+      productSpecSpan.textContent = `商品规格: ${note.productSpec}`;
+      productSpecSpan.style.fontSize = '12px';
+      productSpecSpan.style.display = 'block';
+      productSpecSpan.style.marginTop = '5px';
+      productLink.parentNode.appendChild(productSpecSpan);
+    }
+
     // 如果是从飞书导入的笔记，显示记录ID
     if (note.from === 'feishu' && note.recordId) {
       const recordIdSpan = document.createElement('span');
@@ -1729,6 +1753,47 @@ function updateNotePanels() {
       addLog('已清除所有图片');
       saveState();
     };
+
+    // 绑定事件 - 商品ID
+    const productIdInput = panel.querySelector('.product-id-input');
+    if (productIdInput) {
+      productIdInput.value = note.productId || '';
+      productIdInput.addEventListener('change', (e) => {
+        handleNoteChange(index, 'productId', e.target.value);
+      });
+    }
+
+    // 添加商品规格输入框
+    const productIdContainer = panel.querySelector('.product-id-container');
+    if (productIdContainer) {
+      // 创建商品规格容器
+      const productSpecContainer = document.createElement('div');
+      productSpecContainer.className = 'product-spec-container';
+      productSpecContainer.style.marginTop = '10px';
+      
+      // 创建商品规格标签
+      const productSpecLabel = document.createElement('label');
+      productSpecLabel.textContent = '商品规格:';
+      productSpecLabel.style.display = 'block';
+      productSpecLabel.style.marginBottom = '5px';
+      productSpecContainer.appendChild(productSpecLabel);
+      
+      // 创建商品规格输入框
+      const productSpecInput = document.createElement('input');
+      productSpecInput.type = 'text';
+      productSpecInput.className = 'product-spec-input';
+      productSpecInput.value = note.productSpec || '';
+      productSpecInput.style.width = '100%';
+      productSpecInput.style.padding = '5px';
+      productSpecInput.style.boxSizing = 'border-box';
+      productSpecInput.addEventListener('change', (e) => {
+        handleNoteChange(index, 'productSpec', e.target.value);
+      });
+      productSpecContainer.appendChild(productSpecInput);
+      
+      // 将商品规格容器添加到商品ID容器后面
+      productIdContainer.parentNode.insertBefore(productSpecContainer, productIdContainer.nextSibling);
+    }
   });
 
   addLog(`已更新 ${notes.length} 个笔记面板`);
@@ -1825,10 +1890,30 @@ async function restoreImagePreviews(panel, index) {
   }
 }
 
-// 修改笔记内容变化的处理函数，添加状态保存
+// 查找并修改 handleNoteChange 函数
 function handleNoteChange(index, field, value) {
-  notes[index][field] = value;
-  addLog(`已更新第${index + 1}篇笔记的${field}`);
+  // 检查index有效性
+  if (index < 0 || index >= notes.length) return;
+  
+  // 修改对应字段
+  if (field === 'title') {
+    notes[index].title = value;
+  } else if (field === 'body') {
+    notes[index].body = value;
+  } else if (field === 'tags') {
+    // 处理标签
+    let tags = value.split(/[,\s]+/).map(tag => {
+      tag = tag.trim();
+      return tag.startsWith('#') ? tag : `#${tag}`;
+    }).filter(tag => tag.length > 1); // 过滤掉只有#的标签
+    notes[index].tags = tags;
+  } else if (field === 'productId') {
+    notes[index].productId = value;
+  } else if (field === 'productSpec') {
+    notes[index].productSpec = value;
+  }
+  
+  // 保存修改
   saveState();
 }
 
@@ -2455,6 +2540,7 @@ async function importFromFeishu() {
         body: note.body || note.content || '', // 使用body字段，如果没有则使用content字段
         tags: tags, // 确保tags是数组
         productId: productIdValue, // 使用处理后的商品ID
+        productSpec: note.productSpec || '', // 添加商品规格字段
         images: images,
         imageUrls: imageUrls,
         recordId: note.recordId || null, // 保存记录ID，用于发布后更新状态

@@ -23,6 +23,7 @@ class FeishuBitableClient {
         content: '正文',
         tags: '标签',
         productId: '商品ID',
+        productSpec: '商品规格', // 添加商品规格字段映射
         images: '图片链接'
       },
       filter: ''
@@ -548,6 +549,28 @@ class FeishuBitableClient {
           }
         }
         
+        // 提取商品规格
+        let productSpec = '';
+        if (fieldMapping.productSpec && fields[fieldMapping.productSpec]) {
+          const productSpecField = fields[fieldMapping.productSpec];
+          
+          // 处理不同类型的商品规格字段
+          if (typeof productSpecField === 'string') {
+            productSpec = productSpecField;
+          } else if (Array.isArray(productSpecField) && productSpecField.length > 0) {
+            // 如果是数组，尝试提取第一个元素
+            if (typeof productSpecField[0] === 'string') {
+              productSpec = productSpecField[0];
+            } else if (productSpecField[0] && typeof productSpecField[0] === 'object' && productSpecField[0].text) {
+              // 多选字段格式
+              productSpec = productSpecField[0].text;
+            }
+          } else if (productSpecField && typeof productSpecField === 'object' && productSpecField.text) {
+            // 单值多选字段
+            productSpec = productSpecField.text;
+          }
+        }
+        
         // 提取图片字段
         let imageUrls = [];
         if (fieldMapping.images && fields[fieldMapping.images]) {
@@ -673,6 +696,7 @@ class FeishuBitableClient {
           body: content, // 使用body而不是content作为字段名
           tags,
           productId,
+          productSpec, // 添加商品规格字段
           imageUrls,
           images: [], // 存储实际图片对象
         };
