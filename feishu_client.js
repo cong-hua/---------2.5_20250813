@@ -1068,15 +1068,17 @@ class FeishuBitableClient {
    * 预加载笔记图片
    * @param {Array} notes 笔记数据数组
    * @param {Function} progressCallback 可选的进度回调函数
+   * @param {boolean} saveToLocal 是否将图片保存到本地磁盘 (默认为true)
    * @returns {Promise<Array>} 更新后的笔记数据数组
    */
-  async preloadImages(notes, progressCallback) {
+  async preloadImages(notes, progressCallback, saveToLocal = true) {
     if (!notes || !Array.isArray(notes) || notes.length === 0) {
       console.log('[preloadImages] 没有笔记数据，跳过图片预加载');
       return [];
     }
     
     console.log('[preloadImages] 开始处理笔记图片，笔记数量:', notes.length);
+    console.log('[preloadImages] 图片将' + (saveToLocal ? '保存' : '不保存') + '到本地磁盘');
     
     // 详细输出日志，分析传入的笔记数据
     console.log('[preloadImages] 详细分析传入的笔记数据:');
@@ -1161,6 +1163,11 @@ class FeishuBitableClient {
           note.images = [];
         }
         
+        // 确保localFiles数组存在
+        if (!note.localFiles) {
+          note.localFiles = [];
+        }
+        
         // 跳过没有图片URL的笔记
         if (!note.imageUrls || !Array.isArray(note.imageUrls) || note.imageUrls.length === 0) {
           console.log(`[preloadImages] 笔记 ${i+1}/${notes.length} (${noteId}) 没有图片，跳过`);
@@ -1179,7 +1186,7 @@ class FeishuBitableClient {
             // URL类型
             try {
               console.log(`[preloadImages] 处理URL图片 ${j+1}/${note.imageUrls.length}: ${imageData.substring(0, 100)}...`);
-              await this.processImageUrl(imageData, noteId, imageIndex, progress);
+              await this.processImageUrl(imageData, noteId, imageIndex, progress, saveToLocal);
             } catch (error) {
               console.error(`[preloadImages] 处理图片URL失败:`, error);
               // 错误已在processImageUrl中处理，这里不需要额外处理
@@ -1188,7 +1195,7 @@ class FeishuBitableClient {
             // 对象类型（如飞书附件）
             try {
               console.log(`[preloadImages] 处理对象图片 ${j+1}/${note.imageUrls.length}:`, JSON.stringify(imageData, null, 2));
-              await this.processImageObject(imageData, noteId, imageIndex, progress, progressCallback);
+              await this.processImageObject(imageData, noteId, imageIndex, progress, saveToLocal);
             } catch (error) {
               console.error(`[preloadImages] 处理图片对象失败:`, error);
               // 错误已在processImageObject中处理，这里不需要额外处理
@@ -1282,9 +1289,10 @@ class FeishuBitableClient {
    * @param {string} noteId 笔记ID
    * @param {number} imageIndex 图片索引
    * @param {Object} progress 进度对象
+   * @param {boolean} saveToLocal 是否保存到本地
    * @returns {Promise<Object>} 处理结果
    */
-  async processImageUrl(imageUrl, noteId, imageIndex, progress) {
+  async processImageUrl(imageUrl, noteId, imageIndex, progress, saveToLocal = false) {
     // 跳过无效URL
     if (!imageUrl || typeof imageUrl !== 'string') {
       console.warn(`[processImageUrl] 无效的图片URL:`, imageUrl);
@@ -1319,6 +1327,30 @@ class FeishuBitableClient {
         const blobSize = result.blob.size;
         console.log(`[processImageUrl] 图片下载成功: ${blobSize} 字节`);
         
+        // 保存到本地(如果需要)
+        let localFileInfo = null;
+        if (saveToLocal) {
+          try {
+            // 从URL中提取文件名
+            let fileName = 'image.jpg';
+            try {
+              const urlObj = new URL(imageUrl);
+              const pathParts = urlObj.pathname.split('/');
+              const lastPart = pathParts[pathParts.length - 1];
+              if (lastPart && lastPart.length > 0) {
+                fileName = lastPart;
+              }
+            } catch (e) {
+              console.warn(`[processImageUrl] 无法从URL提取文件名:`, e);
+            }
+            
+            localFileInfo = await this.downloadImageToLocal(result.blob, fileName);
+            console.log(`[processImageUrl] 图片已处理:`, localFileInfo);
+          } catch (localError) {
+            console.error(`[processImageUrl] 处理图片失败:`, localError);
+          }
+        }
+        
         // 更新进度
         progress.success++;
         progress.current++;
@@ -1326,7 +1358,7 @@ class FeishuBitableClient {
           status: 'success',
           type: 'url',
           size: blobSize,
-          url: result.blobUrl
+          url: result.blobUrl || localFileInfo?.blobUrl
         };
         
         // 查找相应的笔记并添加图片
@@ -1338,15 +1370,33 @@ class FeishuBitableClient {
             note.images = [];
           }
           
+          // 确保localFiles数组存在
+          if (!note.localFiles) {
+            note.localFiles = [];
+          }
+          
           // 添加图片信息
           note.images.push({
             blob: result.blob,
-            data: result.data,
-            url: result.blobUrl,
-            blobUrl: result.blobUrl,
+            data: result.data || result.blob,
+            url: result.blobUrl || localFileInfo?.blobUrl,
+            blobUrl: result.blobUrl || localFileInfo?.blobUrl,
             originalUrl: imageUrl,
             success: true
           });
+          
+          // 如果有本地文件信息，添加到localFiles数组
+          if (localFileInfo) {
+            note.localFiles.push({
+              path: localFileInfo.localPath,
+              fileName: localFileInfo.fileName,
+              originalName: localFileInfo.originalName,
+              size: localFileInfo.size,
+              type: localFileInfo.type,
+              blobUrl: localFileInfo.blobUrl,
+              index: imageIndex
+            });
+          }
         }
         
         return result;
@@ -1389,16 +1439,16 @@ class FeishuBitableClient {
   }
   
   /**
-   * 处理图片对象（飞书附件）
+   * 处理图片对象
    * @param {Object} imageObj 图片对象
    * @param {string} noteId 笔记ID
    * @param {number} imageIndex 图片索引
    * @param {Object} progress 进度对象
-   * @param {Function} progressCallback 进度回调
+   * @param {boolean} saveToLocal 是否保存到本地
    * @returns {Promise<Object>} 处理结果
    */
-  async processImageObject(imageObj, noteId, imageIndex, progress, progressCallback) {
-    // 检查对象有效性
+  async processImageObject(imageObj, noteId, imageIndex, progress, saveToLocal = false) {
+    // 如果对象为空或不是对象，则跳过
     if (!imageObj || typeof imageObj !== 'object') {
       console.warn(`[processImageObject] 无效的图片对象:`, imageObj);
       progress.skipped++;
@@ -1410,45 +1460,53 @@ class FeishuBitableClient {
       return null;
     }
     
-    console.log(`[processImageObject] 处理附件图片:`, JSON.stringify(imageObj, null, 2));
-    
-    // 临时：直接输出对象的所有属性和类型
-    console.log('【调试信息】图片对象属性列表:');
-    for (const key in imageObj) {
-      const value = imageObj[key];
-      console.log(`【调试信息】 - ${key}: ${typeof value}`);
-      if (typeof value === 'object' && value !== null) {
-        console.log(`【调试信息】   子属性: ${Object.keys(value).join(', ')}`);
-      } else if (typeof value === 'string' && value.length > 100) {
-        console.log(`【调试信息】   值: ${value.substring(0, 100)}...`);
-      } else {
-        console.log(`【调试信息】   值: ${value}`);
-      }
+    // 检查是否包含URL或token属性
+    if (!imageObj.url && !imageObj.token && !imageObj.fileToken) {
+      console.warn(`[processImageObject] 图片对象缺少URL或token属性:`, imageObj);
+      progress.skipped++;
+      progress.current++;
+      progress.detail[`${noteId}_${imageIndex}`] = {
+        status: 'skipped',
+        reason: '缺少URL或token'
+      };
+      return null;
     }
     
+    // 如果包含URL，则尝试直接下载
+    if (imageObj.url) {
+      return this.processImageUrl(imageObj.url, noteId, imageIndex, progress, saveToLocal);
+    }
+    
+    // 构建fileInfo对象
+    const fileInfo = {
+      token: imageObj.token || imageObj.fileToken,
+      fileToken: imageObj.token || imageObj.fileToken,
+      name: imageObj.name || 'attachment.jpg'
+    };
+    
     try {
-      // 飞书附件专用处理
-      if (imageObj.type === 'attachment' || imageObj.type === 'file') {
-        console.log('【调试信息】检测到飞书标准附件类型');
-        
-        // 检查是否有必要的属性
-        if (!imageObj.name) {
-          console.warn('【调试信息】附件缺少name属性');
-        }
-        
-        // 尝试不同的URL属性
-        if (!imageObj.url && !imageObj.tmp_url && (!imageObj.file || !imageObj.file.url)) {
-          console.error('【调试信息】附件没有可用的URL属性');
-        }
-      } 
+      // 记录详细日志
+      console.log(`[processImageObject] 下载附件 ${noteId}_${imageIndex}: token=${fileInfo.token}`);
       
-      // 下载附件
-      const result = await this.downloadFeishuFile(imageObj);
+      // 尝试下载附件
+      const result = await this.downloadFeishuFile(fileInfo);
       
       // 检查结果
       if (result && result.success && result.blob) {
         const blobSize = result.blob.size;
         console.log(`[processImageObject] 附件下载成功: ${blobSize} 字节`);
+        
+        // 保存到本地(如果需要)
+        let localFileInfo = null;
+        if (saveToLocal) {
+          try {
+            const fileName = fileInfo.name || 'attachment.jpg';
+            localFileInfo = await this.downloadImageToLocal(result.blob, fileName);
+            console.log(`[processImageObject] 图片已处理:`, localFileInfo);
+          } catch (localError) {
+            console.error(`[processImageObject] 处理图片失败:`, localError);
+          }
+        }
         
         // 更新进度
         progress.success++;
@@ -1457,7 +1515,7 @@ class FeishuBitableClient {
           status: 'success',
           type: 'attachment',
           size: blobSize,
-          url: result.blobUrl
+          url: result.blobUrl || localFileInfo?.blobUrl
         };
         
         // 查找相应的笔记并添加图片
@@ -1469,20 +1527,33 @@ class FeishuBitableClient {
             note.images = [];
           }
           
+          // 确保localFiles数组存在
+          if (!note.localFiles) {
+            note.localFiles = [];
+          }
+          
           // 添加图片信息
           note.images.push({
             blob: result.blob,
-            data: result.data,
-            url: result.blobUrl,
-            blobUrl: result.blobUrl,
-            originalUrl: imageObj.url || imageObj.tmp_url || (imageObj.file && imageObj.file.url) || JSON.stringify(imageObj),
+            data: result.data || result.blob,
+            url: result.blobUrl || localFileInfo?.blobUrl,
+            blobUrl: result.blobUrl || localFileInfo?.blobUrl,
+            originalObj: imageObj,
             success: true
           });
-        }
-        
-        // 执行回调
-        if (typeof progressCallback === 'function') {
-          progressCallback(progress);
+          
+          // 如果有本地文件信息，添加到localFiles数组
+          if (localFileInfo) {
+            note.localFiles.push({
+              path: localFileInfo.localPath,
+              fileName: localFileInfo.fileName,
+              originalName: localFileInfo.originalName,
+              size: localFileInfo.size,
+              type: localFileInfo.type,
+              blobUrl: localFileInfo.blobUrl,
+              index: imageIndex
+            });
+          }
         }
         
         return result;
@@ -1498,7 +1569,8 @@ class FeishuBitableClient {
       progress.detail[`${noteId}_${imageIndex}`] = {
         status: 'failed',
         type: 'attachment',
-        error: error.message
+        error: error.message,
+        token: fileInfo.token
       };
       
       // 查找相应的笔记并添加失败信息
@@ -1512,7 +1584,7 @@ class FeishuBitableClient {
         
         // 添加失败信息
         note.images.push({
-          originalUrl: imageObj.url || imageObj.tmp_url || (imageObj.file && imageObj.file.url) || JSON.stringify(imageObj),
+          originalObj: imageObj,
           success: false,
           error: error.message,
           blobUrl: null
@@ -1695,7 +1767,7 @@ class FeishuBitableClient {
       const blobUrl = URL.createObjectURL(blob);
       
       // 返回成功结果
-      return {
+      const result = {
         success: true,
         blob,
         blobUrl,
@@ -1703,6 +1775,13 @@ class FeishuBitableClient {
         originalUrl: downloadUrl,
         fileInfo
       };
+      
+      // 确保result有data属性
+      if (!result.data) {
+        result.data = blob;
+      }
+      
+      return result;
     } catch (error) {
       console.error('[downloadFeishuFile] 下载失败:', error);
       return {
@@ -1711,6 +1790,248 @@ class FeishuBitableClient {
         fileInfo
       };
     }
+  }
+
+  /**
+   * 将图片下载到本地磁盘
+   * @param {Blob} blob 图片Blob对象
+   * @param {string} fileName 文件名
+   * @returns {Promise<Object>} 下载结果，包含本地文件路径
+   */
+  async downloadImageToLocal(blob, fileName) {
+    if (!blob) {
+      console.error('[downloadImageToLocal] Blob为空，无法保存');
+      return {
+        fileName: fileName || 'image.jpg',
+        originalName: fileName || 'image.jpg',
+        localPath: null,
+        size: 0,
+        type: 'image/jpeg',
+        timestamp: new Date().getTime(),
+        isMemoryOnly: true
+      };
+    }
+    
+    // 确保文件名有效
+    const safeFileName = this.getSafeFileName(fileName || 'image.jpg');
+    
+    try {
+      // 检查是否可以使用chrome.downloads
+      if (typeof chrome === 'undefined' || !chrome.downloads) {
+        console.log('[downloadImageToLocal] chrome.downloads API不可用，使用内存模式');
+        
+        // 创建Blob URL (作为内存中的表示)
+        const blobUrl = URL.createObjectURL(blob);
+        
+        return {
+          fileName: safeFileName,
+          originalName: safeFileName,
+          localPath: null,
+          size: blob.size,
+          type: blob.type,
+          timestamp: new Date().getTime(),
+          blobUrl: blobUrl,
+          data: blob
+        };
+      }
+      
+      console.log('[downloadImageToLocal] 使用chrome.downloads API下载图片');
+      
+      // 创建Blob URL
+      const blobUrl = URL.createObjectURL(blob);
+      
+      // 构建文件名
+      const timestamp = new Date().getTime();
+      const fullFileName = `${timestamp}_${safeFileName}`;
+      
+      // 使用chrome.downloads API下载文件
+      return new Promise((resolve, reject) => {
+        chrome.downloads.download({
+          url: blobUrl,
+          filename: `feishu_images/${fullFileName}`,
+          saveAs: false,
+          conflictAction: 'uniquify'
+        }, (downloadId) => {
+          // 检查是否有错误
+          if (chrome.runtime.lastError) {
+            console.error('[downloadImageToLocal] 下载API错误:', chrome.runtime.lastError);
+            URL.revokeObjectURL(blobUrl);
+            
+            // 失败时返回内存中的对象
+            resolve({
+              fileName: safeFileName,
+              originalName: safeFileName,
+              localPath: null,
+              size: blob.size,
+              type: blob.type,
+              timestamp: new Date().getTime(),
+              blobUrl: blobUrl,
+              data: blob,
+              error: chrome.runtime.lastError.message
+            });
+            return;
+          }
+          
+          if (downloadId === undefined) {
+            console.warn('[downloadImageToLocal] 下载ID未定义，可能取消下载');
+            URL.revokeObjectURL(blobUrl);
+            
+            // 返回内存中的对象
+            resolve({
+              fileName: safeFileName,
+              originalName: safeFileName,
+              localPath: null,
+              size: blob.size,
+              type: blob.type,
+              timestamp: new Date().getTime(),
+              blobUrl: blobUrl,
+              data: blob
+            });
+            return;
+          }
+          
+          console.log(`[downloadImageToLocal] 开始下载，ID: ${downloadId}`);
+          
+          const onChanged = function(delta) {
+            if (delta.id !== downloadId) return;
+            
+            console.log(`[downloadImageToLocal] 下载状态变化:`, delta);
+            
+            // 下载完成
+            if (delta.state && delta.state.current === 'complete') {
+              chrome.downloads.onChanged.removeListener(onChanged);
+              
+              // 查询下载项
+              chrome.downloads.search({id: downloadId}, (results) => {
+                if (!results || results.length === 0) {
+                  console.warn('[downloadImageToLocal] 找不到下载项');
+                  URL.revokeObjectURL(blobUrl);
+                  
+                  // 返回内存中的对象
+                  resolve({
+                    fileName: safeFileName,
+                    originalName: safeFileName,
+                    localPath: null,
+                    size: blob.size,
+                    type: blob.type,
+                    timestamp: new Date().getTime(),
+                    blobUrl: blobUrl,
+                    data: blob
+                  });
+                  return;
+                }
+                
+                const download = results[0];
+                console.log(`[downloadImageToLocal] 下载完成:`, download);
+                
+                URL.revokeObjectURL(blobUrl);
+                
+                // 获取本地文件路径
+                const localPath = download.filename;
+                
+                resolve({
+                  fileName: fullFileName,
+                  originalName: safeFileName,
+                  localPath: localPath,
+                  size: blob.size,
+                  type: blob.type,
+                  timestamp: timestamp,
+                  downloadId: downloadId,
+                  isLocalFile: true,
+                  blobUrl: blobUrl, // 保留blobUrl作为备用
+                  data: blob // 保留数据作为备用
+                });
+              });
+            }
+            
+            // 下载错误
+            if (delta.error) {
+              chrome.downloads.onChanged.removeListener(onChanged);
+              console.error(`[downloadImageToLocal] 下载错误: ${delta.error.current}`);
+              URL.revokeObjectURL(blobUrl);
+              
+              // 返回内存中的对象
+              resolve({
+                fileName: safeFileName,
+                originalName: safeFileName,
+                localPath: null,
+                size: blob.size,
+                type: blob.type,
+                timestamp: new Date().getTime(),
+                blobUrl: blobUrl,
+                data: blob,
+                error: delta.error.current
+              });
+            }
+          };
+          
+          chrome.downloads.onChanged.addListener(onChanged);
+          
+          // 添加超时处理
+          setTimeout(() => {
+            chrome.downloads.search({id: downloadId}, (results) => {
+              if (results && results.length > 0 && results[0].state !== 'complete') {
+                console.warn('[downloadImageToLocal] 下载超时，使用内存模式');
+                chrome.downloads.onChanged.removeListener(onChanged);
+                
+                // 返回内存中的对象
+                resolve({
+                  fileName: safeFileName,
+                  originalName: safeFileName,
+                  localPath: null,
+                  size: blob.size,
+                  type: blob.type,
+                  timestamp: new Date().getTime(),
+                  blobUrl: blobUrl,
+                  data: blob,
+                  error: '下载超时'
+                });
+              }
+            });
+          }, 10000); // 10秒超时
+        });
+      });
+    } catch (error) {
+      console.error(`[downloadImageToLocal] 保存图片失败:`, error);
+      
+      // 创建Blob URL作为备用
+      const blobUrl = URL.createObjectURL(blob);
+      
+      // 出错时返回一个模拟的结果，保持兼容性
+      return {
+        fileName: safeFileName,
+        originalName: safeFileName,
+        localPath: null,
+        size: blob.size,
+        type: blob.type,
+        timestamp: new Date().getTime(),
+        error: error.message,
+        isMemoryOnly: true,
+        blobUrl: blobUrl,
+        data: blob
+      };
+    }
+  }
+  
+  /**
+   * 获取安全的文件名
+   * @param {string} fileName 原始文件名
+   * @returns {string} 安全的文件名
+   */
+  getSafeFileName(fileName) {
+    if (!fileName) return 'image.jpg';
+    
+    // 移除不安全的字符
+    let safeName = fileName.replace(/[\\/:*?"<>|]/g, '_');
+    
+    // 确保文件名不超过100字符
+    if (safeName.length > 100) {
+      const ext = path.extname(safeName);
+      const baseName = path.basename(safeName, ext);
+      safeName = baseName.substring(0, 95 - ext.length) + ext;
+    }
+    
+    return safeName;
   }
 }
 

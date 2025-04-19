@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "小红书助手",
-  "version": "1.0",
+  "name": "小红书发布助手",
+  "version": "2.0",
   "description": "自动发布小红书内容",
   "permissions": [
     "scripting",
@@ -9,7 +9,9 @@
     "activeTab",
     "fileSystem",
     "background",
-    "storage"
+    "storage",
+    "downloads",
+    "downloads.open"
   ],
   "host_permissions": [
     "<all_urls>"

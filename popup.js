@@ -485,63 +485,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 图片选择处理
     imageInput.onchange = async function() {
       if (this.files.length === 0) return;
-
-      const files = Array.from(this.files);
-      addLog(`选择了 ${files.length} 张图片`);
-      
-      try {
-        // 加载所有图片
-        const loadedImages = await Promise.all(files.map((file, i) => {
-          return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve({
-              index: i,
-              file,
-              dataUrl: e.target.result
-            });
-            reader.readAsDataURL(file);
-          });
-        }));
-        
-        // 清空当前笔记的图片（移到这里，确保新图片加载成功后再清空）
-        notes[index].images = [];
-        notes[index].imageUrls = {};
-        imagePreview.innerHTML = '';
-        
-        // 处理加载的图片
-        loadedImages.forEach((imageData, i) => {
-          // 保存图片数据
-          notes[index].images[i] = imageData.file;
-          notes[index].imageUrls[i] = imageData.dataUrl;
-          
-          // 创建并添加预览元素
-          const wrapper = createImagePreview(imageData, i, panel, index);
-          
-          // 确保 imagePreview 存在
-          if (!imagePreview.isConnected) {
-            panel.querySelector('.image-preview').appendChild(wrapper);
-          } else {
-            imagePreview.appendChild(wrapper);
-          }
-          
-          addLog(`已加载第 ${i + 1} 张图片`);
-        });
-
-        // 保存图片数据到本地存储
-        try {
-          const noteImages = {
-            images: notes[index].images,
-            imageUrls: notes[index].imageUrls
-          };
-          localStorage.setItem(`note_${index}_images`, JSON.stringify(noteImages));
-        } catch (error) {
-          console.error('保存图片数据失败:', error);
-        }
-
-        addLog(`共加载 ${loadedImages.length} 张图片`, 'success');
-      } catch (error) {
-        addLog(`加载图片失败: ${error.message}`, 'error');
-      }
+      await handleImageUpload(this.files, index, panel);
     };
 
     // 清除图片按钮点击事件
@@ -1950,44 +1894,7 @@ function updateNotePanels() {
     // 图片选择处理
     imageInput.onchange = async function() {
       if (this.files.length === 0) return;
-
-      const files = Array.from(this.files);
-      addLog(`选择了 ${files.length} 张图片`);
-      
-      // 清空当前笔记的图片
-      notes[index].images = [];
-      notes[index].imageUrls = {};
-      imagePreview.innerHTML = '';
-      
-      try {
-        // 加载所有图片
-        const loadedImages = await Promise.all(files.map((file, i) => {
-          return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve({
-              index: i,
-              file,
-              dataUrl: e.target.result
-            });
-            reader.readAsDataURL(file);
-          });
-        }));
-        
-        // 处理加载的图片
-        loadedImages.forEach((imageData, i) => {
-          notes[index].images[i] = imageData.file;
-          notes[index].imageUrls[i] = imageData.dataUrl;
-          
-          const wrapper = createImagePreview(imageData, i, panel, index);
-          imagePreview.appendChild(wrapper);
-          addLog(`已加载第 ${i + 1} 张图片`);
-        });
-
-        addLog(`共加载 ${loadedImages.length} 张图片`, 'success');
-        saveState();
-      } catch (error) {
-        addLog(`加载图片失败: ${error.message}`, 'error');
-      }
+      await handleImageUpload(this.files, index, panel);
     };
 
     // 清除图片按钮点击事件
@@ -2104,7 +2011,47 @@ function handleNoteChange(index, field, value) {
 
 // 修改图片处理相关函数，添加状态保存
 async function handleImageUpload(files, index, panel) {
-  // ... [现有的图片处理代码]
+  if (!files || files.length === 0) return;
+  
+  const imagePreview = panel.querySelector('.image-preview');
+  if (!imagePreview) return;
+  
+  // 清空当前笔记的图片
+  notes[index].images = [];
+  notes[index].imageUrls = {};
+  imagePreview.innerHTML = '';
+  
+  addLog(`选择了 ${files.length} 张图片`);
+  
+  try {
+    // 加载所有图片
+    const loadedImages = await Promise.all(Array.from(files).map((file, i) => {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve({
+          index: i,
+          file,
+          dataUrl: e.target.result
+        });
+        reader.readAsDataURL(file);
+      });
+    }));
+    
+    // 处理加载的图片
+    loadedImages.forEach((imageData, i) => {
+      notes[index].images[i] = imageData.file;
+      notes[index].imageUrls[i] = imageData.dataUrl;
+      
+      const wrapper = createImagePreview(imageData, i, panel, index);
+      imagePreview.appendChild(wrapper);
+      addLog(`已加载第 ${i + 1} 张图片`);
+    });
+    
+    addLog(`共加载 ${loadedImages.length} 张图片`, 'success');
+  } catch (error) {
+    console.error('加载图片失败:', error);
+    addLog(`加载图片失败: ${error.message}`, 'error');
+  }
   
   // 在图片处理完成后保存状态
   await saveState();
@@ -2451,7 +2398,7 @@ async function importFromFeishu() {
     const notesWithImages = await feishuClient.preloadImages(fetchedNotes);
     
     // 转换为插件使用的格式
-    notes = notesWithImages.map(note => {
+    notes = await Promise.all(notesWithImages.map(async (note) => {
       // 处理标签，确保每个标签都带有#号
       let tags = [];
       
@@ -2469,37 +2416,55 @@ async function importFromFeishu() {
         }
       }
       
-      // 收集图片URL - 修改为数组格式
+      // 收集图片 - 重要修改：确保正确存储为base64格式
       const images = [];
       const imageUrls = {};
       
       if (note.images && Array.isArray(note.images) && note.images.length > 0) {
-        // 从preloadImages函数处理后的格式中提取图片
+        // 处理预加载后的图片格式
         for (let index = 0; index < note.images.length; index++) {
           const img = note.images[index];
           if (img) {
-            // 确保提取正确的图片URL，处理不同的属性名
-            const imgUrl = img.blobUrl || img.url;
-            if (imgUrl) {
-              const imgId = `img_${Date.now()}_${index}`;
-              images.push(imgId);
-              imageUrls[imgId] = imgUrl;
+            // 保存原始对象到images数组
+            images[index] = img.blob || img.data;
+            
+            // 重要：确保imageUrls中存储的是base64字符串
+            if (img.data || img.blob) {
+              const blob = img.data || img.blob;
+              // 将Blob转换为base64
+              const base64 = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.readAsDataURL(blob);
+              });
+              imageUrls[index] = base64;
+              addLog(`已处理第 ${index + 1} 张图片为base64格式`, 'info');
+            } else if (img.blobUrl) {
+              // 尝试从blobUrl获取内容并转换
+              try {
+                const response = await fetch(img.blobUrl);
+                const blob = await response.blob();
+                const base64 = await new Promise((resolve) => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => resolve(reader.result);
+                  reader.readAsDataURL(blob);
+                });
+                imageUrls[index] = base64;
+                addLog(`已从blobUrl处理第 ${index + 1} 张图片`, 'info');
+              } catch (e) {
+                addLog(`处理图片URL失败: ${e.message}`, 'error');
+                // 如果失败，尝试使用其他可用的URL
+                imageUrls[index] = img.blobUrl || img.url || '';
+              }
+            } else {
+              // 使用其他可用的URL
+              imageUrls[index] = img.url || '';
             }
-          }
-        }
-      } else if (note.imageUrls && Array.isArray(note.imageUrls) && note.imageUrls.length > 0) {
-        // 兼容直接提供imageUrls数组的情况
-        for (let index = 0; index < note.imageUrls.length; index++) {
-          const url = note.imageUrls[index];
-          if (url) {
-            const imgId = `img_${Date.now()}_${index}`;
-            images.push(imgId);
-            imageUrls[imgId] = url;
           }
         }
       }
       
-      // 处理商品ID - 可能是对象或字符串
+      // 处理商品ID
       let productIdValue = '';
       if (note.productId) {
         if (typeof note.productId === 'object' && note.productId.id) {
@@ -2519,7 +2484,7 @@ async function importFromFeishu() {
         images: images,
         imageUrls: imageUrls
       };
-    });
+    }));
     
     // 保存状态
     await saveState();
