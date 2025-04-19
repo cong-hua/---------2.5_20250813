@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "消息传递测试",
+  "version": "1.0",
+  "description": "测试Chrome扩展消息传递",
+  "permissions": [
+    "storage"
+  ],
+  "action": {
+    "default_popup": "test_messaging.html"
+  },
+  "background": {
+    "service_worker": "background_test.js"
+  }
+} 

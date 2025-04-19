@@ -226,11 +226,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           notes[index].imageUrls[i] = imageData.dataUrl;
           
           // 创建并添加预览元素
-          const wrapper = createImagePreview({
-            index: i,
-            file: imageData.file,
-            dataUrl: imageData.dataUrl
-          }, panel, index);
+          const wrapper = createImagePreview(imageData, i, panel, index);
           
           // 确保 imagePreview 存在
           if (!imagePreview.isConnected) {
@@ -588,104 +584,98 @@ function createImagePreview(imageData, index, panel, noteIndex) {
   wrapper.className = 'preview-image-wrapper';
   wrapper.dataset.index = index;
   wrapper.draggable = true;
-
-  // 创建图片容器
-  const imgContainer = document.createElement('div');
-  imgContainer.style.width = '100%';
-  imgContainer.style.height = '100%';
-  imgContainer.style.position = 'relative';
-
-  // 创建图片元素
+  
   const img = document.createElement('img');
   img.src = imageData.dataUrl;
-  img.style.width = '100%';
-  img.style.height = '100%';
-  img.style.objectFit = 'cover';
+  wrapper.appendChild(img);
   
-  // 创建序号标签
-  const indexLabel = document.createElement('div');
-  indexLabel.className = 'image-index';
-  indexLabel.textContent = (index + 1).toString();
-  
-  // 创建删除按钮
-  const deleteBtn = document.createElement('button');
-  deleteBtn.className = 'delete-image';
-  deleteBtn.innerHTML = '×';
-  deleteBtn.onclick = (e) => {
-    e.stopPropagation();
-    addLogToPanel(panel, `正在删除第 ${index + 1} 张图片...`);
-    wrapper.remove();
-    delete notes[noteIndex].images[index];
-    delete notes[noteIndex].imageUrls[index];
-    updateNoteImageIndices(panel, noteIndex);
-    addLogToPanel(panel, `已删除第 ${index + 1} 张图片`, 'success');
-  };
-
-  // 修改拖拽事件处理
-  wrapper.addEventListener('dragstart', (e) => {
-    e.stopPropagation();
+  // 增加拖拽排序功能
+  wrapper.addEventListener('dragstart', e => {
+    e.dataTransfer.setData('text/plain', index);
     wrapper.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', index.toString());
-    addLog(`开始拖动第 ${index + 1} 张图片`);
   });
-
+  
   wrapper.addEventListener('dragend', () => {
     wrapper.classList.remove('dragging');
   });
-
-  // 添加拖拽目标事件
-  wrapper.addEventListener('dragover', (e) => {
+  
+  wrapper.addEventListener('dragover', e => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    
-    const draggingElement = document.querySelector('.dragging');
-    if (!draggingElement || draggingElement === wrapper) return;
-
-    const imagePreview = panel.querySelector('.image-preview');
-    const allWrappers = [...imagePreview.children];
-    const draggingIndex = allWrappers.indexOf(draggingElement);
-    const currentIndex = allWrappers.indexOf(wrapper);
-
-    if (draggingIndex < currentIndex) {
-      wrapper.after(draggingElement);
-    } else {
-      wrapper.before(draggingElement);
+    const dragging = panel.querySelector('.dragging');
+    if (dragging && dragging !== wrapper) {
+      const imagePreview = panel.querySelector('.preview-images');
+      const afterElement = getDragAfterElement(imagePreview, e.clientY);
+      if (afterElement) {
+        imagePreview.insertBefore(dragging, afterElement);
+      } else {
+        imagePreview.appendChild(dragging);
+      }
     }
   });
-
-  // 将drop事件绑定到图片预览容器上
-  const imagePreview = panel.querySelector('.image-preview');
-  if (!imagePreview.hasDropHandler) {
-    imagePreview.addEventListener('drop', (e) => {
-      e.preventDefault();
-      const draggingElement = document.querySelector('.dragging');
-      if (!draggingElement) return;
-
-      // 获取拖动前后的索引
-      const allWrappers = [...imagePreview.children];
-      const oldIndex = parseInt(draggingElement.dataset.index);
-      const newIndex = allWrappers.indexOf(draggingElement);
-
-      // 只有位置真的改变了才更新
-      if (oldIndex !== newIndex) {
-        updateNoteImageIndices(panel, noteIndex);
-        addLog(`已将第 ${oldIndex + 1} 张图片移动到第 ${newIndex + 1} 位`, 'success');
-      }
-    });
-    imagePreview.hasDropHandler = true;
-  }
-
-  imgContainer.appendChild(img);
-  wrapper.appendChild(imgContainer);
-  wrapper.appendChild(indexLabel);
-  wrapper.appendChild(deleteBtn);
+  
+  wrapper.addEventListener('dragenter', e => {
+    e.preventDefault();
+    wrapper.classList.add('drag-over');
+  });
+  
+  wrapper.addEventListener('dragleave', () => {
+    wrapper.classList.remove('drag-over');
+  });
+  
+  wrapper.addEventListener('drop', e => {
+    e.preventDefault();
+    wrapper.classList.remove('drag-over');
+    
+    // 更新索引
+    updateNoteImageIndices(panel, noteIndex);
+  });
+  
+  // 点击图片右上角的删除按钮
+  wrapper.addEventListener('click', e => {
+    // 计算点击位置是否在右上角
+    const rect = wrapper.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // 右上角区域定义为一个20x20的区域
+    if (x > rect.width - 30 && y < 30) {
+      // 删除图片
+      wrapper.remove();
+      
+      // 从笔记中移除图片数据
+      delete notes[noteIndex].images[index];
+      delete notes[noteIndex].imageUrls[index];
+      
+      // 更新索引
+      updateNoteImageIndices(panel, noteIndex);
+      
+      addLog(`已删除图片 #${index + 1}`, 'info');
+      saveState();
+    }
+  });
+  
   return wrapper;
+}
+
+// 辅助函数，用于确定元素拖拽后的位置
+function getDragAfterElement(container, y) {
+  const draggableElements = [...container.querySelectorAll('.preview-image-wrapper:not(.dragging)')];
+  
+  return draggableElements.reduce((closest, child) => {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    
+    if (offset < 0 && offset > closest.offset) {
+      return { offset, element: child };
+    } else {
+      return closest;
+    }
+  }, { offset: Number.NEGATIVE_INFINITY }).element;
 }
 
 // 修改更新图片索引的函数
 function updateNoteImageIndices(panel, noteIndex) {
-  const imagePreview = panel.querySelector('.image-preview');
+  const imagePreview = panel.querySelector('.preview-images');
   const wrappers = [...imagePreview.children];
   const newImages = [];
   const newImageUrls = {};
@@ -695,10 +685,6 @@ function updateNoteImageIndices(panel, noteIndex) {
     
     // 更新DOM中的索引
     wrapper.dataset.index = newIndex;
-    const indexLabel = wrapper.querySelector('.image-index');
-    if (indexLabel) {
-      indexLabel.textContent = (newIndex + 1).toString();
-    }
     
     // 更新数据
     if (notes[noteIndex].images[oldIndex]) {
@@ -714,16 +700,7 @@ function updateNoteImageIndices(panel, noteIndex) {
   );
 
   // 保存更新后的图片数据
-  try {
-    const noteImages = {
-      images: notes[noteIndex].images,
-      imageUrls: notes[noteIndex].imageUrls
-    };
-    localStorage.setItem(`note_${noteIndex}_images`, JSON.stringify(noteImages));
-  } catch (error) {
-    console.error('保存图片数据失败:', error);
-    addLog('保存图片顺序失败', 'error');
-  }
+  saveState();
 }
 
 // 修改解析笔记内容的函数
@@ -1310,77 +1287,251 @@ function updateNotePanels() {
   // 清空容器
   notesContainer.innerHTML = '';
 
+  // 获取模板
+  const template = document.getElementById('note-panel-template');
+  if (!template) {
+    addLog('未找到笔记面板模板', 'error');
+    return;
+  }
+
   // 为每篇笔记创建面板
   notes.forEach((note, index) => {
-    // 创建笔记面板
-    const panel = document.createElement('div');
-    panel.className = 'note-panel';
+    // 克隆模板
+    const panelContent = template.content.cloneNode(true);
+    const panel = panelContent.querySelector('.note-panel');
     panel.id = `note${index + 1}`;
+    
+    // 设置标题
+    const titleElement = panel.querySelector('.note-title');
+    titleElement.textContent = note.title || `第${index + 1}篇笔记`;
+    
+    // 设置正文内容
+    const bodyElement = panel.querySelector('.body');
+    bodyElement.textContent = note.body || '';
+    
+    // 设置标签
+    const tagsContainer = panel.querySelector('.tags-container');
+    tagsContainer.innerHTML = ''; // 清空默认标签
+    
+    if (note.tags && note.tags.length > 0) {
+      note.tags.forEach(tag => {
+        const tagSpan = document.createElement('span');
+        tagSpan.className = 'tag';
+        tagSpan.textContent = tag;
+        tagsContainer.appendChild(tagSpan);
+      });
+    } else {
+      const emptyTag = document.createElement('span');
+      emptyTag.className = 'tag';
+      emptyTag.style.opacity = '0.5';
+      emptyTag.textContent = '暂无标签';
+      tagsContainer.appendChild(emptyTag);
+    }
+    
+    // 设置商品链接
+    const productLink = panel.querySelector('.product-link');
+    if (note.productId) {
+      productLink.textContent = `商品ID: ${note.productId}`;
+    } else {
+      productLink.textContent = '未设置商品链接';
+      productLink.style.opacity = '0.5';
+    }
 
-    // 修改预览区域的HTML
-    panel.innerHTML = `
-      <div class="note-header">
-        <h3 class="note-title">第${index + 1}篇笔记</h3>
-        <button class="delete-note btn-danger">删除笔记</button>
-      </div>
-      <div class="image-controls">
-        <input type="file" class="image-input" accept="image/*" multiple style="display: none;">
-        <button class="select-image btn">选择图片文件</button>
-        <button class="clear-images btn btn-danger">清除全部图片</button>
-      </div>
-      <div class="image-preview preview-images"></div>
-      <div class="preview">
-        <div class="preview-item">
-          <label>标题:</label>
-          <input type="text" class="title-input" placeholder="笔记标题" value="${note.title}">
-        </div>
-        <div class="preview-item">
-          <label>正文:</label>
-          <textarea class="body-input" placeholder="笔记正文">${note.body}</textarea>
-        </div>
-        <div class="preview-item">
-          <label>标签:</label>
-          <input type="text" class="tags-input" placeholder="输入标签，用空格分隔" value="${note.tags.join(' ')}">
-        </div>
-        <div class="preview-item">
-          <label>商品ID:</label>
-          <input type="text" class="product-id" placeholder="输入商品ID（可选）" value="${note.productId || ''}">
-        </div>
-      </div>
-    `;
-
-    // 绑定内容编辑事件
-    const titleInput = panel.querySelector('.title-input');
-    const bodyInput = panel.querySelector('.body-input');
-    const tagsInput = panel.querySelector('.tags-input');
-    const productIdInput = panel.querySelector('.product-id');
-
-    // 标题修改事件
-    titleInput.addEventListener('change', () => {
-      notes[index].title = titleInput.value.trim();
-      addLog(`已更新第${index + 1}篇笔记的标题`);
+    // 绑定事件 - 内容编辑
+    bodyElement.addEventListener('click', () => {
+      // 创建一个弹出式编辑框
+      const editor = document.createElement('textarea');
+      editor.value = note.body || '';
+      editor.style.width = '100%';
+      editor.style.minHeight = '200px';
+      editor.style.padding = '15px';
+      editor.style.borderRadius = 'var(--radius-sm)';
+      editor.style.border = '1px solid var(--border-color)';
+      editor.style.margin = '10px 0';
+      editor.style.fontSize = '14px';
+      editor.style.fontFamily = 'inherit';
+      editor.style.lineHeight = '1.7';
+      editor.style.outline = 'none';
+      
+      const saveBtn = document.createElement('button');
+      saveBtn.textContent = '保存修改';
+      saveBtn.style.marginTop = '10px';
+      
+      const container = bodyElement.parentElement;
+      container.innerHTML = '';
+      container.appendChild(editor);
+      container.appendChild(saveBtn);
+      
+      editor.focus();
+      
+      saveBtn.addEventListener('click', () => {
+        notes[index].body = editor.value.trim();
+        bodyElement.textContent = notes[index].body;
+        container.innerHTML = '';
+        container.appendChild(bodyElement);
+        addLog(`已更新第${index + 1}篇笔记的正文`, 'success');
+        saveState();
+      });
     });
 
-    // 正文修改事件
-    bodyInput.addEventListener('change', () => {
-      notes[index].body = bodyInput.value.trim();
-      addLog(`已更新第${index + 1}篇笔记的正文`);
+    // 标题点击编辑
+    titleElement.addEventListener('click', (e) => {
+      if(e.target.classList.contains('delete-note')) return;
+      
+      const currentTitle = note.title || `第${index + 1}篇笔记`;
+      const editor = document.createElement('input');
+      editor.type = 'text';
+      editor.value = currentTitle;
+      editor.style.width = '70%';
+      editor.style.padding = '8px 12px';
+      editor.style.border = '1px solid var(--border-color)';
+      editor.style.borderRadius = 'var(--radius-xs)';
+      editor.style.fontSize = '16px';
+      editor.style.fontWeight = 'bold';
+      
+      titleElement.replaceWith(editor);
+      editor.focus();
+      editor.select();
+      
+      // 保存修改
+      const saveTitle = () => {
+        notes[index].title = editor.value.trim() || `第${index + 1}篇笔记`;
+        titleElement.textContent = notes[index].title;
+        editor.replaceWith(titleElement);
+        addLog(`已更新第${index + 1}篇笔记的标题`, 'success');
+        saveState();
+      };
+      
+      editor.addEventListener('blur', saveTitle);
+      editor.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          saveTitle();
+        }
+      });
     });
 
-    // 标签修改事件
-    tagsInput.addEventListener('change', () => {
-      notes[index].tags = tagsInput.value
-        .trim()
-        .split(/\s+/)
-        .filter(tag => tag.startsWith('#'))
-        .map(tag => tag.trim());
-      addLog(`已更新第${index + 1}篇笔记的标签`);
+    // 标签点击编辑
+    tagsContainer.addEventListener('click', () => {
+      const currentTags = note.tags ? note.tags.join(' ') : '';
+      const editor = document.createElement('input');
+      editor.type = 'text';
+      editor.value = currentTags;
+      editor.placeholder = '输入标签，用空格分隔，如: #旅行 #美食';
+      editor.style.width = '100%';
+      editor.style.padding = '10px';
+      editor.style.border = '1px solid var(--border-color)';
+      editor.style.borderRadius = 'var(--radius-xs)';
+      editor.style.fontSize = '14px';
+      
+      tagsContainer.replaceWith(editor);
+      editor.focus();
+      
+      // 保存修改
+      const saveTags = () => {
+        const tagsText = editor.value.trim();
+        notes[index].tags = tagsText ? tagsText.split(/\s+/).map(tag => 
+          tag.startsWith('#') ? tag : `#${tag}`
+        ) : [];
+        
+        // 重新创建标签容器
+        const newTagsContainer = document.createElement('div');
+        newTagsContainer.className = 'tags-container';
+        
+        if (notes[index].tags.length > 0) {
+          notes[index].tags.forEach(tag => {
+            const tagSpan = document.createElement('span');
+            tagSpan.className = 'tag';
+            tagSpan.textContent = tag;
+            newTagsContainer.appendChild(tagSpan);
+          });
+        } else {
+          const emptyTag = document.createElement('span');
+          emptyTag.className = 'tag';
+          emptyTag.style.opacity = '0.5';
+          emptyTag.textContent = '暂无标签';
+          newTagsContainer.appendChild(emptyTag);
+        }
+        
+        editor.replaceWith(newTagsContainer);
+        tagsContainer = newTagsContainer;
+        
+        // 重新绑定点击事件
+        tagsContainer.addEventListener('click', () => {
+          // 这里会调用同样的函数，创建编辑框
+          // 由于闭包，tagsContainer已经更新为最新的元素
+          tagsContainer.click();
+        });
+        
+        addLog(`已更新第${index + 1}篇笔记的标签`, 'success');
+        saveState();
+      };
+      
+      editor.addEventListener('blur', saveTags);
+      editor.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          saveTags();
+        }
+      });
     });
 
-    // 商品ID修改事件
-    productIdInput.addEventListener('change', () => {
-      notes[index].productId = productIdInput.value.trim();
-      addLog(`已更新第${index + 1}篇笔记的商品ID`);
+    // 商品链接点击编辑
+    productLink.addEventListener('click', () => {
+      const currentProductId = note.productId || '';
+      const editor = document.createElement('input');
+      editor.type = 'text';
+      editor.value = currentProductId;
+      editor.placeholder = '请输入商品ID';
+      editor.style.width = '100%';
+      editor.style.padding = '8px';
+      editor.style.border = '1px solid var(--border-color)';
+      editor.style.borderRadius = 'var(--radius-xs)';
+      editor.style.fontSize = '14px';
+      
+      productLink.replaceWith(editor);
+      editor.focus();
+      
+      // 保存修改
+      const saveProductId = () => {
+        notes[index].productId = editor.value.trim();
+        
+        // 重新创建商品链接
+        const newProductLink = document.createElement('div');
+        newProductLink.className = 'product-link';
+        
+        // 添加SVG图标
+        newProductLink.innerHTML = `
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 11 12 14 22 4"></polyline>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+          </svg>
+        `;
+        
+        if (notes[index].productId) {
+          newProductLink.appendChild(document.createTextNode(`商品ID: ${notes[index].productId}`));
+        } else {
+          newProductLink.appendChild(document.createTextNode('未设置商品链接'));
+          newProductLink.style.opacity = '0.5';
+        }
+        
+        editor.replaceWith(newProductLink);
+        productLink = newProductLink;
+        
+        // 重新绑定点击事件
+        productLink.addEventListener('click', () => {
+          // 这里会调用同样的函数，创建编辑框
+          productLink.click();
+        });
+        
+        addLog(`已更新第${index + 1}篇笔记的商品ID`, 'success');
+        saveState();
+      };
+      
+      editor.addEventListener('blur', saveProductId);
+      editor.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          saveProductId();
+        }
+      });
     });
 
     // 绑定删除笔记按钮事件
@@ -1390,20 +1541,29 @@ function updateNotePanels() {
         notes.splice(index, 1);
         updateNotePanels();
         addLog(`已删除第${index + 1}篇笔记`, 'info');
+        saveState();
       }
     };
 
     // 添加到容器
     notesContainer.appendChild(panel);
 
-    // 恢复图片预览
-    restoreImagePreviews(panel, index);
-
     // 绑定图片处理事件
-    const imageInput = panel.querySelector('.image-input');
-    const selectImageBtn = panel.querySelector('.select-image');
+    const imageInput = document.createElement('input');
+    imageInput.type = 'file';
+    imageInput.accept = 'image/*';
+    imageInput.multiple = true;
+    imageInput.style.display = 'none';
+    panel.appendChild(imageInput);
+
+    const selectImageBtn = panel.querySelector('.select-images');
     const clearImagesBtn = panel.querySelector('.clear-images');
-    const imagePreview = panel.querySelector('.image-preview');
+    const imagePreview = panel.querySelector('.preview-images');
+
+    // 恢复图片预览
+    if (note.images && note.images.length > 0) {
+      restoreImagePreviews(panel, index);
+    }
 
     // 选择图片按钮点击事件
     selectImageBtn.onclick = () => imageInput.click();
@@ -1445,6 +1605,7 @@ function updateNotePanels() {
         });
 
         addLog(`共加载 ${loadedImages.length} 张图片`, 'success');
+        saveState();
       } catch (error) {
         addLog(`加载图片失败: ${error.message}`, 'error');
       }
@@ -1457,6 +1618,7 @@ function updateNotePanels() {
       imagePreview.innerHTML = '';
       imageInput.value = '';
       addLog('已清除所有图片');
+      saveState();
     };
   });
 
@@ -1527,25 +1689,30 @@ async function saveNoteImages(noteIndex) {
 // 修改图片恢复函数
 async function restoreImagePreviews(panel, index) {
   try {
-    const data = await chrome.storage.local.get(`note_${index}_images`);
-    const savedImages = data[`note_${index}_images`];
+    if (!notes[index] || !notes[index].imageUrls) return;
     
-    if (savedImages) {
-      const imagePreview = panel.querySelector('.image-preview');
+    const imagePreview = panel.querySelector('.preview-images');
+    if (!imagePreview) return;
+    
+    // 清空预览区域
+    imagePreview.innerHTML = '';
+    
+    // 为每个图片创建预览
+    Object.entries(notes[index].imageUrls).forEach(([imageIndex, dataUrl]) => {
+      if (!dataUrl) return;
       
-      Object.entries(savedImages.imageUrls).forEach(([i, dataUrl]) => {
-        const wrapper = createImagePreview({
-          index: parseInt(i),
-          dataUrl: dataUrl
-        }, panel, index);
-        imagePreview.appendChild(wrapper);
-      });
+      const imageData = {
+        index: parseInt(imageIndex),
+        dataUrl
+      };
       
-      notes[index].images = savedImages.images;
-      notes[index].imageUrls = savedImages.imageUrls;
-    }
+      const wrapper = createImagePreview(imageData, parseInt(imageIndex), panel, index);
+      imagePreview.appendChild(wrapper);
+    });
+    
+    addLog(`已恢复第${index + 1}篇笔记的图片预览`, 'info');
   } catch (error) {
-    console.error('恢复图片预览失败:', error);
+    addLog(`恢复图片预览失败: ${error.message}`, 'error');
   }
 }
 
