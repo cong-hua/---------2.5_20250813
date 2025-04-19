@@ -1188,24 +1188,100 @@ async function publishNote(noteData, index) {
     if (noteData.from === 'feishu' && noteData.recordId) {
       try {
         addLog('检测到笔记来自飞书，正在更新飞书状态...', 'info');
+        addLog(`笔记ID:${noteData.recordId}, 标题:"${noteData.title}"`, 'info');
+        
+        // 检查noteData内容，排除错误可能
+        console.log('[publishNote] 笔记数据:', JSON.stringify(noteData, (key, value) => {
+          if (key === 'images' || key === 'imageUrls') {
+            return '[图片数据]';
+          }
+          return value;
+        }, 2));
         
         // 检查feishuClient是否存在
         if (window.feishuClient) {
+          addLog('飞书客户端已初始化，准备更新状态', 'info');
+          
+          // 检查飞书客户端配置
+          const configStatus = checkFeishuClientConfig();
+          if (!configStatus.success) {
+            addLog(`飞书客户端配置不完整: ${configStatus.error}`, 'warning');
+            addLog('请先完成飞书配置后再尝试', 'info');
+            return true; // 仍然返回成功，因为发布成功了
+          }
+          
+          // 确保有token
+          let token;
+          try {
+            token = await window.feishuClient.getTenantAccessToken();
+            if (token) {
+              addLog('成功获取飞书访问令牌', 'info');
+            } else {
+              addLog('获取飞书访问令牌失败: 返回为空', 'warning');
+              return true; // 仍然返回成功，因为发布成功了
+            }
+          } catch (tokenError) {
+            addLog(`获取飞书访问令牌失败: ${tokenError.message}`, 'warning');
+            return true; // 仍然返回成功，因为发布成功了
+          }
+          
           // 更新飞书记录的发布状态
+          addLog('开始更新飞书记录发布状态...', 'step');
           const updateResult = await window.feishuClient.updateRecordPublishStatus(noteData.recordId);
           
           if (updateResult.success) {
-            addLog('已成功更新飞书记录状态为"已发布"', 'success');
+            addLog(`已成功更新飞书记录"${noteData.title}"状态为"已发布"`, 'success');
+            
+            // 记录使用的字段名
+            if (updateResult.fieldName) {
+              addLog(`使用字段名"${updateResult.fieldName}"更新成功`, 'info');
+            }
+            
+            // 展示响应详情
+            if (updateResult.result) {
+              addLog('更新响应详情', 'info', JSON.stringify(updateResult.result, null, 2));
+            }
           } else {
             addLog(`更新飞书状态失败: ${updateResult.error}`, 'warning');
+            
+            // 检查可能的原因
+            if (updateResult.error && updateResult.error.includes('权限')) {
+              addLog('可能原因：飞书授权权限不足，请确保应用有写入权限', 'warning');
+            } else if (updateResult.error && updateResult.error.includes('记录') && updateResult.error.includes('不存在')) {
+              addLog('可能原因：飞书中的记录已被删除或移动', 'warning');
+            } else if (updateResult.error && (updateResult.error.includes('字段') || updateResult.error.includes('field'))) {
+              addLog('可能原因："是否发布"字段不存在或字段名不匹配', 'warning');
+              addLog('请确认飞书多维表格中是否存在名为"是否发布"的字段', 'info');
+            }
+            
+            // 显示尝试过的字段
+            if (updateResult.triedFields) {
+              addLog(`尝试过的字段名: ${updateResult.triedFields.join(', ')}`, 'info');
+            }
           }
         } else {
-          addLog('飞书客户端未初始化，无法更新飞书状态', 'warning');
+          addLog('飞书客户端未初始化，尝试初始化客户端...', 'warning');
+          
+          // 尝试初始化客户端
+          if (typeof feishuClient !== 'undefined') {
+            window.feishuClient = feishuClient;
+            addLog('已将feishuClient设置为全局变量，请尝试再次发布', 'info');
+          } else {
+            addLog('无法找到feishuClient对象，请先从飞书导入数据', 'warning');
+          }
         }
       } catch (error) {
         console.error('更新飞书状态时出错:', error);
         addLog(`更新飞书状态异常: ${error.message}`, 'error');
+        addLog('错误堆栈', 'error', error.stack);
         // 这里不抛出异常，因为笔记已经发布成功，更新飞书状态是附加功能
+      }
+    } else {
+      // 记录为什么没有更新飞书状态
+      if (!noteData.from || noteData.from !== 'feishu') {
+        addLog('笔记来源不是飞书，不需要更新飞书状态', 'info');
+      } else if (!noteData.recordId) {
+        addLog('笔记缺少飞书记录ID，无法更新飞书状态', 'warning');
       }
     }
     
@@ -1235,116 +1311,121 @@ function updateNotePanels() {
 
   // 如果有从飞书导入的笔记，添加测试按钮
   if (notes.length > 0 && notes.some(note => note.from === 'feishu' && note.recordId)) {
-    const testBtn = document.createElement('button');
-    testBtn.innerText = '测试更新飞书字段';
-    testBtn.className = 'button primary';
-    testBtn.style.marginBottom = '10px';
-    testBtn.addEventListener('click', async () => {
-      try {
-        // 找到第一个从飞书导入的有recordId的笔记
-        const feishuNote = notes.find(note => note.from === 'feishu' && note.recordId);
-        
-        if (!feishuNote) {
-          addLog('未找到有效的飞书笔记', 'error');
-          return;
-        }
-        
-        addLog(`开始测试更新飞书记录 ${feishuNote.recordId} 的状态...`, 'info');
-        addLog(`记录标题: "${feishuNote.title}"`, 'info');
-        
-        // 检查feishuClient是否存在
-        if (!window.feishuClient) {
-          addLog('飞书客户端未初始化，尝试初始化客户端...', 'warning');
-          
-          // 尝试初始化客户端
-          if (typeof feishuClient !== 'undefined') {
-            window.feishuClient = feishuClient;
-            addLog('已将feishuClient设置为全局变量', 'info');
-          } else {
-            addLog('无法找到feishuClient对象，请先从飞书导入数据', 'error');
-            return;
-          }
-        }
-        
-        // 检查飞书客户端配置
-        const configStatus = checkFeishuClientConfig();
-        if (!configStatus.success) {
-          addLog(`飞书客户端配置不完整: ${configStatus.error}`, 'error');
-          addLog('请先完成飞书配置后再尝试', 'info');
-          return;
-        }
-        
-        addLog('检查飞书客户端配置成功', 'success');
-        addLog(`飞书应用: ${configStatus.appId}, 表格: ${configStatus.tableId}`, 'info');
-        
-        // 确保有token
-        addLog('正在获取飞书访问令牌...', 'info');
+    // 测试按钮临时隐藏，需要时可以将下面的 false 改为 true 来显示测试按钮
+    const showTestButtons = false;
+    
+    if (showTestButtons) {
+      const testBtn = document.createElement('button');
+      testBtn.innerText = '测试更新飞书字段';
+      testBtn.className = 'button primary';
+      testBtn.style.marginBottom = '10px';
+      testBtn.addEventListener('click', async () => {
         try {
-          const token = await window.feishuClient.getTenantAccessToken();
-          if (token) {
-            addLog('成功获取飞书访问令牌', 'success');
-          } else {
-            addLog('获取飞书访问令牌失败: 返回为空', 'error');
+          // 找到第一个从飞书导入的有recordId的笔记
+          const feishuNote = notes.find(note => note.from === 'feishu' && note.recordId);
+          
+          if (!feishuNote) {
+            addLog('未找到有效的飞书笔记', 'error');
             return;
           }
-        } catch (tokenError) {
-          addLog(`获取飞书访问令牌失败: ${tokenError.message}`, 'error');
-          addLog('请检查App ID和App Secret配置是否正确', 'info');
-          return;
-        }
-        
-        // 更新飞书记录的发布状态
-        addLog('开始更新飞书记录发布状态...', 'step');
-        
-        const updateResult = await window.feishuClient.updateRecordPublishStatus(feishuNote.recordId);
-        
-        if (updateResult.success) {
-          addLog(`测试成功：已更新飞书记录"${feishuNote.title}"状态为"已发布"`, 'success');
           
-          // 展示响应详情
-          if (updateResult.result) {
-            addLog('更新响应详情', 'info', JSON.stringify(updateResult.result, null, 2));
-          }
-        } else {
-          addLog(`测试失败：更新飞书状态失败 - ${updateResult.error}`, 'error');
+          addLog(`开始测试更新飞书记录 ${feishuNote.recordId} 的状态...`, 'info');
+          addLog(`记录标题: "${feishuNote.title}"`, 'info');
           
-          // 检查可能的原因
-          if (updateResult.error.includes('权限') || updateResult.error.includes('未授权')) {
-            addLog('可能原因：飞书授权权限不足，请确保应用有写入权限', 'warning');
-          } else if (updateResult.error.includes('记录') && updateResult.error.includes('不存在')) {
-            addLog('可能原因：飞书中的记录已被删除或移动', 'warning');
-          } else if (updateResult.error.includes('字段') || updateResult.error.includes('field')) {
-            addLog('可能原因："是否发布"字段不存在或字段名不匹配', 'warning');
-            addLog('请确认飞书多维表格中是否存在名为"是否发布"的字段', 'info');
+          // 检查feishuClient是否存在
+          if (!window.feishuClient) {
+            addLog('飞书客户端未初始化，尝试初始化客户端...', 'warning');
+            
+            // 尝试初始化客户端
+            if (typeof feishuClient !== 'undefined') {
+              window.feishuClient = feishuClient;
+              addLog('已将feishuClient设置为全局变量', 'info');
+            } else {
+              addLog('无法找到feishuClient对象，请先从飞书导入数据', 'error');
+              return;
+            }
           }
+          
+          // 检查飞书客户端配置
+          const configStatus = checkFeishuClientConfig();
+          if (!configStatus.success) {
+            addLog(`飞书客户端配置不完整: ${configStatus.error}`, 'error');
+            addLog('请先完成飞书配置后再尝试', 'info');
+            return;
+          }
+          
+          addLog('检查飞书客户端配置成功', 'success');
+          addLog(`飞书应用: ${configStatus.appId}, 表格: ${configStatus.tableId}`, 'info');
+          
+          // 确保有token
+          addLog('正在获取飞书访问令牌...', 'info');
+          try {
+            const token = await window.feishuClient.getTenantAccessToken();
+            if (token) {
+              addLog('成功获取飞书访问令牌', 'success');
+            } else {
+              addLog('获取飞书访问令牌失败: 返回为空', 'error');
+              return;
+            }
+          } catch (tokenError) {
+            addLog(`获取飞书访问令牌失败: ${tokenError.message}`, 'error');
+            addLog('请检查App ID和App Secret配置是否正确', 'info');
+            return;
+          }
+          
+          // 更新飞书记录的发布状态
+          addLog('开始更新飞书记录发布状态...', 'step');
+          
+          const updateResult = await window.feishuClient.updateRecordPublishStatus(feishuNote.recordId);
+          
+          if (updateResult.success) {
+            addLog(`测试成功：已更新飞书记录"${feishuNote.title}"状态为"已发布"`, 'success');
+            
+            // 展示响应详情
+            if (updateResult.result) {
+              addLog('更新响应详情', 'info', JSON.stringify(updateResult.result, null, 2));
+            }
+          } else {
+            addLog(`测试失败：更新飞书状态失败 - ${updateResult.error}`, 'error');
+            
+            // 检查可能的原因
+            if (updateResult.error.includes('权限') || updateResult.error.includes('未授权')) {
+              addLog('可能原因：飞书授权权限不足，请确保应用有写入权限', 'warning');
+            } else if (updateResult.error.includes('记录') && updateResult.error.includes('不存在')) {
+              addLog('可能原因：飞书中的记录已被删除或移动', 'warning');
+            } else if (updateResult.error.includes('字段') || updateResult.error.includes('field')) {
+              addLog('可能原因："是否发布"字段不存在或字段名不匹配', 'warning');
+              addLog('请确认飞书多维表格中是否存在名为"是否发布"的字段', 'info');
+            }
+          }
+        } catch (error) {
+          console.error('测试更新飞书状态时出错:', error);
+          addLog(`测试异常: ${error.message}`, 'error');
+          addLog('错误堆栈', 'error', error.stack);
         }
-      } catch (error) {
-        console.error('测试更新飞书状态时出错:', error);
-        addLog(`测试异常: ${error.message}`, 'error');
-        addLog('错误堆栈', 'error', error.stack);
-      }
-    });
-    
-    notesContainer.appendChild(testBtn);
-    
-    // 添加检查配置按钮
-    const checkConfigBtn = document.createElement('button');
-    checkConfigBtn.innerText = '检查飞书配置';
-    checkConfigBtn.className = 'button secondary';
-    checkConfigBtn.style.marginBottom = '10px';
-    checkConfigBtn.style.marginLeft = '10px';
-    checkConfigBtn.addEventListener('click', () => {
-      const configStatus = checkFeishuClientConfig();
+      });
       
-      if (configStatus.success) {
-        addLog('飞书配置检查成功', 'success');
-        addLog('飞书配置详情', 'info', JSON.stringify(configStatus.config, null, 2));
-      } else {
-        addLog(`飞书配置检查失败: ${configStatus.error}`, 'error');
-      }
-    });
-    
-    notesContainer.appendChild(checkConfigBtn);
+      notesContainer.appendChild(testBtn);
+      
+      // 添加检查配置按钮
+      const checkConfigBtn = document.createElement('button');
+      checkConfigBtn.innerText = '检查飞书配置';
+      checkConfigBtn.className = 'button secondary';
+      checkConfigBtn.style.marginBottom = '10px';
+      checkConfigBtn.style.marginLeft = '10px';
+      checkConfigBtn.addEventListener('click', () => {
+        const configStatus = checkFeishuClientConfig();
+        
+        if (configStatus.success) {
+          addLog('飞书配置检查成功', 'success');
+          addLog('飞书配置详情', 'info', JSON.stringify(configStatus.config, null, 2));
+        } else {
+          addLog(`飞书配置检查失败: ${configStatus.error}`, 'error');
+        }
+      });
+      
+      notesContainer.appendChild(checkConfigBtn);
+    }
   }
 
   // 为每篇笔记创建面板
@@ -2028,6 +2109,7 @@ function setupFeishuUpdateListener() {
     window.feishuClient.updateRecordStatus = async function(recordId, fields) {
       console.log('[增强日志] 开始更新飞书记录:', recordId, '字段:', fields);
       addLog(`准备更新飞书记录: ${recordId}`, 'info');
+      addLog(`更新字段: ${Object.keys(fields).join(', ')}`, 'info');
       
       try {
         const result = await this._originalUpdateRecordStatus(recordId, fields);
@@ -2037,6 +2119,53 @@ function setupFeishuUpdateListener() {
       } catch (error) {
         console.error('[增强日志] 更新飞书记录失败:', error);
         addLog(`更新飞书记录失败: ${error.message}`, 'error');
+        
+        // 检查是否有stack信息
+        if (error.stack) {
+          console.error('[增强日志] 错误堆栈:', error.stack);
+        }
+        
+        // 检查具体的错误情况
+        if (error.message.includes('权限')) {
+          addLog('飞书应用权限不足，请确保应用有写入多维表格的权限', 'warning');
+        } else if (error.message.includes('token')) {
+          addLog('访问令牌无效，请检查飞书应用配置', 'warning');
+        } else if (error.message.includes('字段') || error.message.includes('field')) {
+          addLog('字段不存在或类型不匹配，请检查飞书表格中是否有对应字段', 'warning');
+        }
+        
+        throw error;
+      }
+    };
+  }
+  
+  // 同样增强updateRecordPublishStatus方法
+  if (window.feishuClient && !window.feishuClient._originalUpdateRecordPublishStatus) {
+    window.feishuClient._originalUpdateRecordPublishStatus = window.feishuClient.updateRecordPublishStatus;
+    
+    window.feishuClient.updateRecordPublishStatus = async function(recordId) {
+      console.log('[增强日志] 开始更新飞书记录发布状态:', recordId);
+      
+      try {
+        // 添加详细日志 - 检查配置
+        const { appToken, tableId } = this.config;
+        if (!appToken || !tableId) {
+          const missingConfig = [];
+          if (!appToken) missingConfig.push('appToken');
+          if (!tableId) missingConfig.push('tableId');
+          console.error(`[增强日志] 缺少必要的配置: ${missingConfig.join(', ')}`);
+        } else {
+          console.log(`[增强日志] 飞书配置: appToken=${appToken}, tableId=${tableId}`);
+        }
+        
+        // 调用原始方法
+        const result = await this._originalUpdateRecordPublishStatus(recordId);
+        console.log('[增强日志] 更新飞书记录发布状态结果:', result);
+        
+        return result;
+      } catch (error) {
+        console.error('[增强日志] 更新飞书记录发布状态失败:', error);
+        console.error('[增强日志] 错误堆栈:', error.stack);
         throw error;
       }
     };
@@ -2368,14 +2497,62 @@ async function uploadToXiaohongshu() {
     
     addLog(`开始发布 ${selectedNotes.length} 篇笔记`, 'step');
     
+    // 检查是否有从飞书导入的笔记
+    const feishuNotes = selectedNotes.filter(note => note.from === 'feishu' && note.recordId);
+    if (feishuNotes.length > 0) {
+      addLog(`检测到 ${feishuNotes.length} 篇来自飞书的笔记`, 'info');
+      
+      // 确保飞书客户端已初始化
+      if (!window.feishuClient) {
+        addLog('飞书客户端未初始化，尝试初始化...', 'warning');
+        
+        if (typeof feishuClient !== 'undefined') {
+          window.feishuClient = feishuClient;
+          addLog('已将feishuClient设置为全局变量', 'info');
+        } else {
+          addLog('警告: 无法找到feishuClient对象，发布后可能无法更新飞书状态', 'warning');
+        }
+      }
+      
+      // 检查飞书客户端配置
+      if (window.feishuClient) {
+        const configStatus = checkFeishuClientConfig();
+        if (!configStatus.success) {
+          addLog(`飞书客户端配置不完整: ${configStatus.error}`, 'warning');
+          addLog('发布后可能无法更新飞书状态', 'warning');
+        } else {
+          addLog('飞书客户端配置正常，可以更新飞书状态', 'success');
+        }
+      }
+    }
+    
     // 按顺序发布笔记
     for (let i = 0; i < selectedNotes.length; i++) {
       const note = selectedNotes[i];
+      
+      // 检查是否有ID属性
+      if (!note.id) {
+        note.id = Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+        addLog(`笔记缺少ID，已生成临时ID: ${note.id}`, 'info');
+      }
+      
       const index = notes.findIndex(n => n.id === note.id);
+      
+      // 输出笔记信息
+      addLog(`准备发布笔记 #${i+1}: "${note.title}"`, 'info');
+      if (note.from === 'feishu' && note.recordId) {
+        addLog(`笔记来源: 飞书, 记录ID: ${note.recordId}`, 'info');
+      } else {
+        addLog(`笔记来源: ${note.from || '本地'}`, 'info');
+      }
       
       try {
         // 发布当前笔记
-        await publishNote(note, index);
+        const publishResult = await publishNote(note, index);
+        
+        if (publishResult) {
+          addLog(`笔记 "${note.title}" 发布成功`, 'success');
+        }
         
         // 等待指定时间后再发布下一篇
         if (i < selectedNotes.length - 1) {
