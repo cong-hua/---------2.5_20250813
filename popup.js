@@ -392,6 +392,16 @@ function addLog(message, type = 'info', details = '') {
 document.addEventListener('DOMContentLoaded', async () => {
   await restoreState();
   await restoreFeishuConfig(); // 恢复飞书配置
+  
+  // 检查feishuClient是否正常加载
+  setTimeout(() => {
+    if (!window.feishuClient) {
+      addLog('警告: 飞书客户端未正确加载，部分功能可能不可用', 'error');
+    } else {
+      addLog('飞书客户端已成功加载', 'info');
+    }
+  }, 1000);
+  
   setupStateListeners();
   
   console.log('页面加载完成');
@@ -2359,6 +2369,11 @@ function initFeishuModal() {
     }
     
     try {
+      // 检查feishuClient是否存在
+      if (!window.feishuClient) {
+        throw new Error('飞书客户端未初始化，请刷新页面后重试');
+      }
+      
       // 初始化飞书客户端
       const feishuClient = window.feishuClient;
       feishuClient.init({
@@ -2405,6 +2420,11 @@ function initFeishuModal() {
 async function importFromFeishu() {
   try {
     addLog('开始从飞书导入数据...', 'info');
+    
+    // 检查feishuClient是否存在
+    if (!window.feishuClient) {
+      throw new Error('飞书客户端未初始化，请刷新页面后重试');
+    }
     
     // 初始化飞书客户端
     const feishuClient = window.feishuClient;
