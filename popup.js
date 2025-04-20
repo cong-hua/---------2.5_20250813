@@ -2374,6 +2374,9 @@ function initFeishuModal() {
     }
     
     try {
+      // 设置全局测试模式标志，避免下载图片
+      window.feishuTestMode = true;
+      
       // 检查feishuClient是否存在
       if (!window.feishuClient) {
         throw new Error('飞书客户端未初始化，请刷新页面后重试');
@@ -2393,11 +2396,16 @@ function initFeishuModal() {
       await feishuClient.getTenantAccessToken();
       
       // 尝试获取记录数量
-      const options = { limit: 1 };
+      const options = { 
+        limit: 1, 
+        testMode: true // 添加testMode参数，避免下载文件
+      };
       if (feishuConfig.viewId) {
         options.viewId = feishuConfig.viewId;
       }
-      const records = await feishuClient.getAllRecords(options);
+      
+      // 使用测试模式获取记录
+      const records = await feishuClient.fetchNotes(options);
       
       // 显示成功消息
       statusDiv.className = 'status-message success';
@@ -2406,6 +2414,9 @@ function initFeishuModal() {
       // 显示错误信息
       statusDiv.className = 'status-message error';
       statusDiv.textContent = `连接失败：${error.message}`;
+    } finally {
+      // 清除测试模式标志
+      window.feishuTestMode = false;
     }
   };
   

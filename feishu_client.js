@@ -208,14 +208,18 @@ class FeishuBitableClient {
         appToken = this.config.appToken, 
         tableId = this.config.tableId,
         viewId = this.config.viewId,
-        filter = this.config.filter
+        filter = this.config.filter,
+        limit = undefined,
+        testMode = false // 添加测试模式参数，默认为false
       } = options;
       
       console.log('获取记录的配置:', {
         appToken,
         tableId,
         viewId,
-        filter
+        filter,
+        limit,
+        testMode
       });
       
       // 参数检查
@@ -231,6 +235,7 @@ class FeishuBitableClient {
       let pageToken = null;
       let hasMore = true;
       let pageCount = 0;
+      let total = 0;
       
       while (hasMore) {
         pageCount++;
@@ -238,7 +243,13 @@ class FeishuBitableClient {
         
         // 构建查询参数
         const urlParams = new URLSearchParams();
-        urlParams.append('page_size', '100');
+        
+        // 如果是测试模式或指定了limit，则只获取少量记录
+        if (testMode || limit) {
+          urlParams.append('page_size', limit || 1);
+        } else {
+          urlParams.append('page_size', '100');
+        }
         
         if (pageToken) {
           urlParams.append('page_token', pageToken);
@@ -251,19 +262,10 @@ class FeishuBitableClient {
         
         // 添加筛选条件
         if (filter) {
-          let filterStr;
-          if (typeof filter === 'string') {
-            filterStr = filter;
-          } else if (typeof filter === 'object') {
-            filterStr = JSON.stringify(filter);
-          }
-          
-          if (filterStr) {
-            urlParams.append('filter', filterStr);
-          }
+          urlParams.append('filter', filter);
         }
         
-        // 构建URL
+        // 构建请求URL
         const url = `https://open.feishu.cn/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records?${urlParams.toString()}`;
         
         // 发送请求
@@ -275,44 +277,59 @@ class FeishuBitableClient {
           }
         });
         
-        // 解析响应
-        const result = await response.json();
-        
-        if (result.code !== 0) {
-          console.error('API错误详情:', result);
-          throw new Error(`获取记录失败: ${result.msg || '未知错误'}`);
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(`获取记录失败: ${errorData.msg || response.statusText}`);
         }
         
-        if (!result.data) {
-          throw new Error('API响应格式错误: 缺少data字段');
+        const data = await response.json();
+        
+        if (data.code !== 0) {
+          throw new Error(`获取记录失败: ${data.msg || '未知错误'}`);
         }
         
-        if (!Array.isArray(result.data.items)) {
-          console.error('API响应items不是数组:', result.data);
-          result.data.items = [];
-        }
+        // 获取记录数组
+        const records = data.data.items || [];
+        console.log(`第 ${pageCount} 页获取到 ${records.length} 条记录`);
         
-        // 将本页记录添加到总记录中
-        allRecords = allRecords.concat(result.data.items);
-        console.log(`当前已获取 ${allRecords.length} 条记录`);
+        // 合并记录
+        allRecords = allRecords.concat(records);
         
-        // 检查是否有下一页
-        pageToken = result.data.page_token;
-        hasMore = !!pageToken;
-        
-        // 安全措施：防止无限循环
-        if (pageCount > 10) {
-          console.warn('达到最大页数限制(10页)，停止获取');
+        // 检查是否有更多数据
+        if (data.data.has_more && (!testMode && !limit)) {
+          hasMore = true;
+          pageToken = data.data.page_token;
+        } else {
           hasMore = false;
+        }
+        
+        // 如果是测试模式或指定了limit，只获取第一页
+        if (testMode || limit) {
+          hasMore = false;
+          
+          // 设置total属性
+          if (data.data.total) {
+            total = data.data.total;
+          } else {
+            // 如果API没有返回total，尝试估算
+            total = data.data.has_more ? records.length * 10 : records.length;
+          }
         }
       }
       
-      console.log(`成功获取所有记录, 共 ${allRecords.length} 条`);
+      console.log(`共获取到 ${allRecords.length} 条记录`);
       
-      // 添加：调试记录字段
-      this.debugRecordFields(allRecords);
+      // 如果不是测试模式，则临时调试第一条记录的字段
+      if (!testMode && allRecords.length > 0 && !limit) {
+        this.debugRecordFields(allRecords);
+      }
       
+      // 缓存记录
       this.recordsCache = allRecords;
+      
+      // 添加total属性
+      allRecords.total = total || allRecords.length;
+      
       return allRecords;
     } catch (error) {
       console.error('获取记录失败:', error);
@@ -832,18 +849,26 @@ class FeishuBitableClient {
         return this.notesCache;
       }
       
-      // 获取飞书记录
-      const records = await this.getAllRecords(options);
+      // 获取原始记录
+      const records = await this.getAllRecords({ 
+        ...options,
+        testMode: options.testMode // 传递测试模式参数
+      });
       
-      // 转换为笔记数据
+      // 如果是测试模式，不进行进一步处理，直接返回
+      if (options.testMode) {
+        return records;
+      }
+      
+      // 转换为笔记格式
       const notes = this.convertToNotes(records);
       
-      // 缓存结果
+      // 保存缓存
       this.notesCache = notes;
       
       return notes;
     } catch (error) {
-      console.error('获取笔记数据失败:', error);
+      console.error('获取笔记失败:', error);
       throw error;
     }
   }
@@ -2008,46 +2033,57 @@ class FeishuBitableClient {
   }
 
   /**
-   * 将图片下载到本地磁盘
+   * 下载图片到本地（如果可能）
    * @param {Blob} blob 图片Blob对象
    * @param {string} fileName 文件名
-   * @returns {Promise<Object>} 下载结果，包含本地文件路径
+   * @returns {Promise<Object>} 下载结果
    */
   async downloadImageToLocal(blob, fileName) {
-    if (!blob) {
-      console.error('[downloadImageToLocal] Blob为空，无法保存');
-      return {
-        fileName: fileName || 'image.jpg',
-        originalName: fileName || 'image.jpg',
-        localPath: null,
-        size: 0,
-        type: 'image/jpeg',
-        timestamp: new Date().getTime(),
-        isMemoryOnly: true
-      };
-    }
-    
-    // 确保文件名有效
-    const safeFileName = this.getSafeFileName(fileName || 'image.jpg');
-    
     try {
+      // 参数检查
+      if (!blob) {
+        throw new Error('没有提供有效的Blob对象');
+      }
+      
+      // 确保文件名是安全的
+      const safeFileName = this.getSafeFileName(fileName || `image_${Date.now()}.jpg`);
+      
+      // 默认返回对象
+      const result = {
+        success: true,
+        path: null,
+        url: URL.createObjectURL(blob),
+        blob,
+        data: blob,
+        blobUrl: URL.createObjectURL(blob)
+      };
+      
       // 检查是否可以使用chrome.downloads
       if (typeof chrome === 'undefined' || !chrome.downloads) {
         console.log('[downloadImageToLocal] chrome.downloads API不可用，使用内存模式');
-        
-        // 创建Blob URL (作为内存中的表示)
-        const blobUrl = URL.createObjectURL(blob);
-        
-        return {
-          fileName: safeFileName,
-          originalName: safeFileName,
-          localPath: null,
-          size: blob.size,
-          type: blob.type,
-          timestamp: new Date().getTime(),
-          blobUrl: blobUrl,
-          data: blob
-        };
+        return result;
+      }
+      
+      // 创建一个变量来标记是否在测试模式
+      const isTestMode = window.feishuTestMode === true;
+      
+      // 如果在测试模式下，不执行实际下载
+      if (isTestMode) {
+        console.log('[downloadImageToLocal] 测试模式：跳过实际下载');
+        return result;
+      }
+      
+      // 获取设置
+      const settings = await new Promise(resolve => {
+        chrome.storage.local.get(['downloadImages'], data => {
+          resolve(data.downloadImages || false);
+        });
+      });
+      
+      // 如果设置为不下载图片，则只返回blob URL
+      if (!settings) {
+        console.log('[downloadImageToLocal] 根据设置跳过下载');
+        return result;
       }
       
       console.log('[downloadImageToLocal] 使用chrome.downloads API下载图片');
@@ -2055,174 +2091,99 @@ class FeishuBitableClient {
       // 创建Blob URL
       const blobUrl = URL.createObjectURL(blob);
       
-      // 构建文件名
-      const timestamp = new Date().getTime();
-      const fullFileName = `${timestamp}_${safeFileName}`;
-      
       // 使用chrome.downloads API下载文件
       return new Promise((resolve, reject) => {
         chrome.downloads.download({
           url: blobUrl,
-          filename: `feishu_images/${fullFileName}`,
+          filename: safeFileName,
           saveAs: false,
           conflictAction: 'uniquify'
-        }, (downloadId) => {
-          // 检查是否有错误
+        }, downloadId => {
           if (chrome.runtime.lastError) {
-            console.error('[downloadImageToLocal] 下载API错误:', chrome.runtime.lastError);
+            console.error('下载失败:', chrome.runtime.lastError);
             URL.revokeObjectURL(blobUrl);
-            
-            // 失败时返回内存中的对象
-            resolve({
-              fileName: safeFileName,
-              originalName: safeFileName,
-              localPath: null,
-              size: blob.size,
-              type: blob.type,
-              timestamp: new Date().getTime(),
-              blobUrl: blobUrl,
-              data: blob,
-              error: chrome.runtime.lastError.message
-            });
+            reject(new Error(`下载失败: ${chrome.runtime.lastError.message}`));
             return;
           }
           
           if (downloadId === undefined) {
-            console.warn('[downloadImageToLocal] 下载ID未定义，可能取消下载');
+            console.error('下载ID未定义');
             URL.revokeObjectURL(blobUrl);
-            
-            // 返回内存中的对象
-            resolve({
-              fileName: safeFileName,
-              originalName: safeFileName,
-              localPath: null,
-              size: blob.size,
-              type: blob.type,
-              timestamp: new Date().getTime(),
-              blobUrl: blobUrl,
-              data: blob
-            });
+            reject(new Error('下载ID未定义'));
             return;
           }
           
-          console.log(`[downloadImageToLocal] 开始下载，ID: ${downloadId}`);
+          console.log(`开始下载, ID: ${downloadId}`);
           
+          // 监听下载完成事件
           const onChanged = function(delta) {
-            if (delta.id !== downloadId) return;
+            if (delta.id !== downloadId) {
+              return;
+            }
             
-            console.log(`[downloadImageToLocal] 下载状态变化:`, delta);
-            
-            // 下载完成
             if (delta.state && delta.state.current === 'complete') {
+              console.log(`下载完成，ID: ${downloadId}`);
               chrome.downloads.onChanged.removeListener(onChanged);
               
-              // 查询下载项
+              // 获取文件路径
               chrome.downloads.search({id: downloadId}, (results) => {
-                if (!results || results.length === 0) {
-                  console.warn('[downloadImageToLocal] 找不到下载项');
-                  URL.revokeObjectURL(blobUrl);
-                  
-                  // 返回内存中的对象
-                  resolve({
-                    fileName: safeFileName,
-                    originalName: safeFileName,
-                    localPath: null,
-                    size: blob.size,
-                    type: blob.type,
-                    timestamp: new Date().getTime(),
-                    blobUrl: blobUrl,
-                    data: blob
-                  });
+                const downloadItem = results[0];
+                URL.revokeObjectURL(blobUrl);
+                
+                if (!downloadItem) {
+                  reject(new Error('无法获取下载项信息'));
                   return;
                 }
                 
-                const download = results[0];
-                console.log(`[downloadImageToLocal] 下载完成:`, download);
-                
-                URL.revokeObjectURL(blobUrl);
-                
-                // 获取本地文件路径
-                const localPath = download.filename;
-                
                 resolve({
-                  fileName: fullFileName,
-                  originalName: safeFileName,
-                  localPath: localPath,
-                  size: blob.size,
-                  type: blob.type,
-                  timestamp: timestamp,
-                  downloadId: downloadId,
-                  isLocalFile: true,
-                  blobUrl: blobUrl, // 保留blobUrl作为备用
-                  data: blob // 保留数据作为备用
+                  success: true,
+                  path: downloadItem.filename,
+                  url: downloadItem.url,
+                  blob,
+                  blobUrl: URL.createObjectURL(blob),
+                  data: blob
                 });
               });
-            }
-            
-            // 下载错误
-            if (delta.error) {
+            } else if (delta.error) {
+              console.error(`下载出错: ${delta.error.current}`);
               chrome.downloads.onChanged.removeListener(onChanged);
-              console.error(`[downloadImageToLocal] 下载错误: ${delta.error.current}`);
               URL.revokeObjectURL(blobUrl);
-              
-              // 返回内存中的对象
-              resolve({
-                fileName: safeFileName,
-                originalName: safeFileName,
-                localPath: null,
-                size: blob.size,
-                type: blob.type,
-                timestamp: new Date().getTime(),
-                blobUrl: blobUrl,
-                data: blob,
-                error: delta.error.current
-              });
+              reject(new Error(`下载出错: ${delta.error.current}`));
             }
           };
           
           chrome.downloads.onChanged.addListener(onChanged);
           
-          // 添加超时处理
+          // 30秒超时
           setTimeout(() => {
             chrome.downloads.search({id: downloadId}, (results) => {
-              if (results && results.length > 0 && results[0].state !== 'complete') {
-                console.warn('[downloadImageToLocal] 下载超时，使用内存模式');
-                chrome.downloads.onChanged.removeListener(onChanged);
-                
-                // 返回内存中的对象
-                resolve({
-                  fileName: safeFileName,
-                  originalName: safeFileName,
-                  localPath: null,
-                  size: blob.size,
-                  type: blob.type,
-                  timestamp: new Date().getTime(),
-                  blobUrl: blobUrl,
-                  data: blob,
-                  error: '下载超时'
-                });
+              const downloadItem = results[0];
+              chrome.downloads.onChanged.removeListener(onChanged);
+              
+              if (downloadItem && downloadItem.state !== 'complete') {
+                console.warn('下载超时，但可能仍在进行中');
               }
+              
+              // 返回当前状态
+              resolve({
+                success: true,
+                path: downloadItem ? downloadItem.filename : null,
+                url: blobUrl,
+                blob,
+                blobUrl: URL.createObjectURL(blob),
+                data: blob
+              });
             });
-          }, 10000); // 10秒超时
+          }, 30000);
         });
       });
     } catch (error) {
-      console.error(`[downloadImageToLocal] 保存图片失败:`, error);
-      
-      // 创建Blob URL作为备用
-      const blobUrl = URL.createObjectURL(blob);
-      
-      // 出错时返回一个模拟的结果，保持兼容性
+      console.error('[downloadImageToLocal] 下载失败:', error);
       return {
-        fileName: safeFileName,
-        originalName: safeFileName,
-        localPath: null,
-        size: blob.size,
-        type: blob.type,
-        timestamp: new Date().getTime(),
+        success: false,
         error: error.message,
-        isMemoryOnly: true,
-        blobUrl: blobUrl,
+        blobUrl: blob ? URL.createObjectURL(blob) : null,
+        blob,
         data: blob
       };
     }
