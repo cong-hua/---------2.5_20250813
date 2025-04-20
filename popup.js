@@ -1926,7 +1926,7 @@ function handleNoteChange(index, field, value) {
 async function handleImageUpload(files, index, panel) {
   if (!files || files.length === 0) return;
   
-  const imagePreview = panel.querySelector('.image-preview');
+  const imagePreview = panel.querySelector('.preview-images');
   if (!imagePreview) return;
   
   // 清空当前笔记的图片
@@ -2929,10 +2929,10 @@ function setupEventListeners() {
 
   // 为每个笔记面板添加图片处理功能
   document.querySelectorAll('.note-panel').forEach((panel, index) => {
-    const imageInput = panel.querySelector('.image-input');
-    const selectImageBtn = panel.querySelector('.select-image');
+    const imageInput = panel.querySelector('input[type="file"]');
+    const selectImageBtn = panel.querySelector('.select-images');
     const clearImagesBtn = panel.querySelector('.clear-images');
-    const imagePreview = panel.querySelector('.image-preview');
+    const imagePreview = panel.querySelector('.preview-images');
 
     // 选择图片按钮点击事件
     if (selectImageBtn) {
@@ -2957,6 +2957,7 @@ function setupEventListeners() {
         imagePreview.innerHTML = '';
         imageInput.value = ''; // 重置文件输入框
         addLog('已清除所有图片');
+        saveState();
       });
     }
   });
@@ -3202,6 +3203,5 @@ function clearLogs() {
   
   // 清空存储的日志
   chrome.storage.local.remove('logs');
-}
+}// 添加状态显示更新函数
 
-// 添加状态显示更新函数
