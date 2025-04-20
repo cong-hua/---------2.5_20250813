@@ -46,6 +46,12 @@ async function startPublishing(data) {
   if (publishState.isPublishing) return;
 
   try {
+    // 创建新标签页
+    const tab = await chrome.tabs.create({
+      url: 'https://creator.xiaohongshu.com/publish/publish',
+      active: true
+    });
+    
     // 重置发布状态
     publishState = {
       isPublishing: true,
@@ -57,17 +63,10 @@ async function startPublishing(data) {
         minInterval: data.publishConfig.minInterval,
         maxInterval: data.publishConfig.maxInterval
       },
-      tabId: null,
-      currentAction: '准备发布',
+      tabId: tab.id,
+      currentAction: '准备发布（测试模式）',
       waitTime: 0
     };
-
-    // 创建新标签页
-    const tab = await chrome.tabs.create({
-      url: 'https://creator.xiaohongshu.com/publish/publish',
-      active: true
-    });
-    publishState.tabId = tab.id;
 
     // 开始发布循环
     for (let i = 0; i < data.notes.length; i++) {
@@ -298,10 +297,6 @@ chrome.runtime.onStartup.addListener(async () => {
 // 修改发布笔记函数
 async function publishNote(noteData) {
   try {
-    // 更新上传图片状态
-    publishState.currentAction = '正在上传图片...';
-    notifyPopup('ACTION_UPDATE');
-
     // 获取当前标签页
     publishState.currentAction = '打开发布页面';
     let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -526,45 +521,289 @@ async function publishNote(noteData) {
                             if (searchButton) {
                               searchButton.click();
 
-                              // 等待输入框出现并输入商品ID
+                              // 显示测试模式弹窗
                               setTimeout(() => {
-                                const searchInput = document.querySelector('body > div.d-modal-mask > div > div.d-modal-content > div > div.d-grid > div:nth-child(2) > div > div > div > div');
-                                if (searchInput) {
-                                  searchInput.focus();
-                                  document.execCommand('insertText', false, productId);
-                                  searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-
-                                  // 等待搜索结果并勾选商品
+                                if (confirm('⚠️测试模式提示⚠️\n\n当前处于测试模式，发布按钮将不会被实际点击。\n\n点击"确定"继续测试，点击"取消"停止测试。')) {
+                                  console.log('用户确认继续测试模式');
+                                  
+                                  // 等待输入框出现并输入商品ID
                                   setTimeout(() => {
-                                    const checkboxSpan = document.querySelector('body > div.d-modal-mask > div > div.d-modal-content > div > div.goods-list-container > div.goods-list-normal > div > div.good-card-container > div.d-grid.d-checkbox.d-checkbox-main.d-clickable.good-selected > span');
-                                    if (checkboxSpan) {
-                                      checkboxSpan.click();
+                                    const searchInput = document.querySelector('body > div.d-modal-mask > div > div.d-modal-content > div > div.d-grid > div:nth-child(2) > div > div > div > div');
+                                    if (searchInput) {
+                                      searchInput.focus();
+                                      document.execCommand('insertText', false, productId);
+                                      searchInput.dispatchEvent(new Event('input', { bubbles: true }));
 
-                                      // 点击保存按钮
+                                      // 记录商品规格（如果有）到控制台，方便调试
+                                      if (contentData.productSpec) {
+                                        console.log('注意：有商品规格需要设置:', contentData.productSpec);
+                                      }
+
+                                      // 等待搜索结果并勾选商品
                                       setTimeout(() => {
-                                        const saveButton = document.querySelector('body > div.d-modal-mask > div > div.d-modal-footer > div > button > div');
-                                        if (saveButton) {
-                                          saveButton.click();
-                                          
-                                          // 等待保存完成后再点击发布按钮
+                                        const checkboxSpan = document.querySelector('body > div.d-modal-mask > div > div.d-modal-content > div > div.goods-list-container > div.goods-list-normal > div > div.good-card-container > div.d-grid.d-checkbox.d-checkbox-main.d-clickable.good-selected > span');
+                                        if (checkboxSpan) {
+                                          checkboxSpan.click();
+
+                                          // 点击保存按钮
                                           setTimeout(() => {
-                                            const publishButton = document.querySelector('#web > div.outarea.publish-c > div > div > div > div.submit > div > button.d-button.d-button-large.--size-icon-large.--size-text-h6.d-button-with-content.--color-static.bold.--color-bg-fill.--color-text-paragraph.custom-button.red.publishBtn > div');
-                                            if (publishButton) {
-                                              publishButton.click();
-                                              resolve(true);
+                                            const saveButton = document.querySelector('body > div.d-modal-mask > div > div.d-modal-footer > div > button > div');
+                                            if (saveButton) {
+                                              saveButton.click();
+                                              
+                                              // 等待保存完成后，处理商品规格（如果有）
+                                              setTimeout(() => {
+                                                // 获取商品规格
+                                                const productSpec = contentData.productSpec;
+                                                
+                                                if (productSpec && productSpec.trim() !== '') {
+                                                  console.log('发现商品规格：', productSpec);
+                                                  
+                                                  // 点击改规格按钮
+                                                  const editSpecButton = document.querySelector('#web > div.outarea.publish-c > div > div > div > div.body > div.content > div.media-commodity > div > div > div > div > div > div > div.draggable-wrap > div > div.draggable-good-card-operation > button:nth-child(2) > div > span.d-text.--color-static.--color-current.--size-text-paragraph.d-text-nowrap.d-text-ellipsis.d-text-nowrap');
+                                                  
+                                                  if (editSpecButton) {
+                                                    console.log('点击规格选择按钮');
+                                                    editSpecButton.click();
+                                                    
+                                                    // 等待规格选择弹窗加载
+                                                    setTimeout(() => {
+                                                      try {
+                                                        // 获取规格区域
+                                                        const specContainer = document.querySelector('body > div.d-modal-mask > div > div.d-modal-content > div > div.variant-list');
+                                                        
+                                                        if (!specContainer) {
+                                                          console.log('未找到规格容器');
+                                                          return;
+                                                        }
+                                                        
+                                                        // 获取所有规格选项
+                                                        const specOptions = specContainer.querySelectorAll('span');
+                                                        console.log(`找到 ${specOptions.length} 个规格选项`);
+                                                        
+                                                        // 将完整的选项文本记录下来，方便调试
+                                                        const allOptionsText = Array.from(specOptions).map(opt => opt.textContent.trim()).join(', ');
+                                                        console.log('所有选项:', allOptionsText);
+                                                        
+                                                        // 精确匹配单个规格
+                                                        let specFound = false;
+                                                        
+                                                        // 记录目标规格
+                                                        console.log('正在查找目标规格:', productSpec);
+                                                        
+                                                        // 遍历规格选项，查找精确匹配
+                                                        for (let i = 0; i < specOptions.length; i++) {
+                                                          const option = specOptions[i];
+                                                          const optionText = option.textContent.trim();
+                                                          
+                                                          console.log(`规格选项 ${i+1}:`, optionText);
+                                                          
+                                                          // 检查是否为精确匹配
+                                                          if (optionText === productSpec) {
+                                                            console.log('找到精确匹配规格:', optionText);
+                                                            option.click();
+                                                            specFound = true;
+                                                            break;
+                                                          }
+                                                        }
+                                                        
+                                                        // 如果没有找到精确匹配，尝试在单词边界处匹配
+                                                        if (!specFound) {
+                                                          console.log('尝试匹配单个规格名称');
+                                                          
+                                                          // 获取所有选项中的单个规格
+                                                          const singleOptions = allOptionsText.split(/[,\s]+/);
+                                                          console.log('拆分后的单个规格:', singleOptions);
+                                                          
+                                                          for (let i = 0; i < specOptions.length; i++) {
+                                                            const option = specOptions[i];
+                                                            const words = option.textContent.trim().split(/[,\s]+/);
+                                                            
+                                                            if (words.includes(productSpec)) {
+                                                              console.log('在选项中找到单词匹配:', productSpec);
+                                                              option.click();
+                                                              specFound = true;
+                                                              break;
+                                                            }
+                                                          }
+                                                        }
+                                                        
+                                                        // 如果还是没找到，遍历每个选项并点击包含目标规格文本的选项
+                                                        if (!specFound) {
+                                                          console.log('尝试点击包含目标文本的任何选项');
+                                                          // 先选中所有可见的span元素，直接通过文本内容匹配
+                                                          const allSpans = document.querySelectorAll('body > div.d-modal-mask span');
+                                                          for (let span of allSpans) {
+                                                            if (span.textContent.trim() === productSpec) {
+                                                              console.log('通过文本内容找到精确匹配:', span.textContent.trim());
+                                                              span.click();
+                                                              specFound = true;
+                                                              break;
+                                                            }
+                                                          }
+                                                        }
+                                                        
+                                                        // 根据是否找到规格决定点击确认或取消
+                                                        setTimeout(() => {
+                                                          if (specFound) {
+                                                            // 点击确认按钮
+                                                            const confirmButton = document.querySelector('body > div.d-modal-mask > div > div.d-modal-content > div > div.variant-footer > button.d-button.d-button-default.d-button-with-content.--color-static.bold.--color-bg-primary.--color-white > div > span');
+                                                            if (confirmButton) {
+                                                              console.log('点击确认按钮');
+                                                              confirmButton.click();
+                                                              
+                                                              // 确认完规格后再点击发布按钮
+                                                              setTimeout(() => {
+                                                                const publishButton = document.querySelector('#web > div.outarea.publish-c > div > div > div > div.submit > div > button.d-button.d-button-large.--size-icon-large.--size-text-h6.d-button-with-content.--color-static.bold.--color-bg-fill.--color-text-paragraph.custom-button.red.publishBtn > div');
+                                                                if (publishButton) {
+                                                                  // 添加测试模式确认弹窗
+                                                                  if (confirm('⚠️测试模式提示⚠️\n\n当前处于测试模式，发布按钮将不会被实际点击。\n\n点击"确定"继续测试，点击"取消"停止测试。')) {
+                                                                    console.log('用户确认测试模式：商品规格选择成功情况');
+                                                                    // publishButton.click(); // 测试阶段注释掉实际点击
+                                                                    console.log('【测试模式】找到发布按钮，但不点击。商品规格选择成功！');
+                                                                    resolve(true);
+                                                                  } else {
+                                                                    console.log('用户取消了测试');
+                                                                    resolve(false);
+                                                                  }
+                                                                } else {
+                                                                  console.log('未找到发布按钮');
+                                                                  resolve(false);
+                                                                }
+                                                              }, 2000);
+                                                            } else {
+                                                              console.log('未找到确认按钮');
+                                                              // 如果找不到确认按钮，尝试点击发布按钮
+                                                              setTimeout(() => {
+                                                                const publishButton = document.querySelector('#web > div.outarea.publish-c > div > div > div > div.submit > div > button.d-button.d-button-large.--size-icon-large.--size-text-h6.d-button-with-content.--color-static.bold.--color-bg-fill.--color-text-paragraph.custom-button.red.publishBtn > div');
+                                                                if (publishButton) {
+                                                                  // 添加测试模式确认弹窗
+                                                                  if (confirm('⚠️测试模式提示⚠️\n\n当前处于测试模式，发布按钮将不会被实际点击。\n\n点击"确定"继续测试，点击"取消"停止测试。')) {
+                                                                    console.log('用户确认测试模式：未找到确认按钮情况');
+                                                                    // publishButton.click(); // 测试阶段注释掉实际点击
+                                                                    console.log('【测试模式】找到发布按钮，但不点击。未找到确认按钮情况。');
+                                                                    resolve(true);
+                                                                  } else {
+                                                                    console.log('用户取消了测试');
+                                                                    resolve(false);
+                                                                  }
+                                                                } else {
+                                                                  resolve(false);
+                                                                }
+                                                              }, 1000);
+                                                            }
+                                                          } else {
+                                                            // 点击取消按钮
+                                                            console.log('未找到匹配规格，点击取消');
+                                                            const cancelButton = document.querySelector('body > div.d-modal-mask > div > div.d-modal-content > div > div.variant-footer > button.d-button.d-button-default.d-button-with-content.--color-static.bold.--color-bg-fill.--color-text-paragraph > div > span');
+                                                            if (cancelButton) {
+                                                              cancelButton.click();
+                                                            }
+                                                            
+                                                            // 取消选择规格后，仍然点击发布按钮
+                                                            setTimeout(() => {
+                                                              const publishButton = document.querySelector('#web > div.outarea.publish-c > div > div > div > div.submit > div > button.d-button.d-button-large.--size-icon-large.--size-text-h6.d-button-with-content.--color-static.bold.--color-bg-fill.--color-text-paragraph.custom-button.red.publishBtn > div');
+                                                              if (publishButton) {
+                                                                // 添加测试模式确认弹窗
+                                                                if (confirm('⚠️测试模式提示⚠️\n\n当前处于测试模式，发布按钮将不会被实际点击。\n\n点击"确定"继续测试，点击"取消"停止测试。')) {
+                                                                  console.log('用户确认测试模式：未找到匹配规格情况');
+                                                                  // publishButton.click(); // 测试阶段注释掉实际点击
+                                                                  console.log('【测试模式】找到发布按钮，但不点击。未找到匹配规格情况。');
+                                                                  resolve(true);
+                                                                } else {
+                                                                  console.log('用户取消了测试');
+                                                                  resolve(false);
+                                                                }
+                                                              } else {
+                                                                resolve(false);
+                                                              }
+                                                            }, 2000);
+                                                          }
+                                                        }, 1500);
+                                                      } catch (error) {
+                                                        console.error('处理规格选择时出错:', error);
+                                                        // 出错时点击取消按钮
+                                                        const cancelButton = document.querySelector('body > div.d-modal-mask > div > div.d-modal-content > div > div.variant-footer > button.d-button.d-button-default.d-button-with-content.--color-static.bold.--color-bg-fill.--color-text-paragraph > div > span');
+                                                        if (cancelButton) {
+                                                          cancelButton.click();
+                                                        }
+                                                        
+                                                        // 继续点击发布按钮
+                                                        setTimeout(() => {
+                                                          const publishButton = document.querySelector('#web > div.outarea.publish-c > div > div > div > div.submit > div > button.d-button.d-button-large.--size-icon-large.--size-text-h6.d-button-with-content.--color-static.bold.--color-bg-fill.--color-text-paragraph.custom-button.red.publishBtn > div');
+                                                          if (publishButton) {
+                                                            // 添加测试模式确认弹窗
+                                                            if (confirm('⚠️测试模式提示⚠️\n\n当前处于测试模式，发布按钮将不会被实际点击。\n\n点击"确定"继续测试，点击"取消"停止测试。')) {
+                                                              console.log('用户确认测试模式：处理规格选择出错情况');
+                                                              // publishButton.click(); // 测试阶段注释掉实际点击
+                                                              console.log('【测试模式】找到发布按钮，但不点击。处理规格选择出错情况。');
+                                                              resolve(true);
+                                                            } else {
+                                                              console.log('用户取消了测试');
+                                                              resolve(false);
+                                                            }
+                                                          } else {
+                                                            resolve(false);
+                                                          }
+                                                        }, 2000);
+                                                      }
+                                                    }, 2000);
+                                                  } else {
+                                                    console.log('未找到改规格按钮，直接点击发布');
+                                                    // 未找到改规格按钮，直接点击发布
+                                                    setTimeout(() => {
+                                                      const publishButton = document.querySelector('#web > div.outarea.publish-c > div > div > div > div.submit > div > button.d-button.d-button-large.--size-icon-large.--size-text-h6.d-button-with-content.--color-static.bold.--color-bg-fill.--color-text-paragraph.custom-button.red.publishBtn > div');
+                                                      if (publishButton) {
+                                                        // 添加测试模式确认弹窗
+                                                        if (confirm('⚠️测试模式提示⚠️\n\n当前处于测试模式，发布按钮将不会被实际点击。\n\n点击"确定"继续测试，点击"取消"停止测试。')) {
+                                                          console.log('用户确认测试模式：未找到改规格按钮情况');
+                                                          // publishButton.click(); // 测试阶段注释掉实际点击
+                                                          console.log('【测试模式】找到发布按钮，但不点击。未找到改规格按钮情况。');
+                                                          resolve(true);
+                                                        } else {
+                                                          console.log('用户取消了测试');
+                                                          resolve(false);
+                                                        }
+                                                      } else {
+                                                        resolve(false);
+                                                      }
+                                                    }, 1000);
+                                                  }
+                                                } else {
+                                                  // 没有商品规格，直接点击发布按钮
+                                                  console.log('无商品规格，直接点击发布');
+                                                  const publishButton = document.querySelector('#web > div.outarea.publish-c > div > div > div > div.submit > div > button.d-button.d-button-large.--size-icon-large.--size-text-h6.d-button-with-content.--color-static.bold.--color-bg-fill.--color-text-paragraph.custom-button.red.publishBtn > div');
+                                                  if (publishButton) {
+                                                    // 添加测试模式确认弹窗
+                                                    if (confirm('⚠️测试模式提示⚠️\n\n当前处于测试模式，发布按钮将不会被实际点击。\n\n点击"确定"继续测试，点击"取消"停止测试。')) {
+                                                      console.log('用户确认测试模式：无商品规格情况');
+                                                      // publishButton.click(); // 测试阶段注释掉实际点击
+                                                      console.log('【测试模式】找到发布按钮，但不点击。无商品规格情况。');
+                                                      resolve(true);
+                                                    } else {
+                                                      console.log('用户取消了测试');
+                                                      resolve(false);
+                                                    }
+                                                  } else {
+                                                    resolve(false);
+                                                  }
+                                                }
+                                              }, 2000);
                                             } else {
                                               resolve(false);
                                             }
-                                          }, 2000);
+                                          }, 1000);
                                         } else {
                                           resolve(false);
                                         }
-                                      }, 1000);
+                                      }, 2000);
                                     } else {
+                                      console.log('用户取消了测试模式');
                                       resolve(false);
                                     }
-                                  }, 2000);
+                                  }, 1000);
                                 } else {
+                                  console.log('用户取消了测试模式');
                                   resolve(false);
                                 }
                               }, 1000);
@@ -581,8 +820,16 @@ async function publishNote(noteData) {
                       setTimeout(() => {
                         const publishButton = document.querySelector('#web > div.outarea.publish-c > div > div > div > div.submit > div > button.d-button.d-button-large.--size-icon-large.--size-text-h6.d-button-with-content.--color-static.bold.--color-bg-fill.--color-text-paragraph.custom-button.red.publishBtn > div');
                         if (publishButton) {
-                          publishButton.click();
-                          resolve(true);
+                          // 添加测试模式确认弹窗
+                          if (confirm('⚠️测试模式提示⚠️\n\n当前处于测试模式，发布按钮将不会被实际点击。\n\n点击"确定"继续测试，点击"取消"停止测试。')) {
+                            console.log('用户确认测试模式：无商品ID情况');
+                            // publishButton.click(); // 测试阶段注释掉实际点击
+                            console.log('【测试模式】找到发布按钮，但不点击。无商品ID情况。');
+                            resolve(true);
+                          } else {
+                            console.log('用户取消了测试');
+                            resolve(false);
+                          }
                         } else {
                           resolve(false);
                         }
@@ -598,7 +845,15 @@ async function publishNote(noteData) {
           }, 1000);
         });
       },
-      args: [noteData, noteData.productId || '']
+      args: [
+        { 
+          title: noteData.title, 
+          body: noteData.body, 
+          tags: noteData.tags,
+          productSpec: noteData.productSpec // 添加商品规格
+        }, 
+        noteData.productId || ''
+      ]
     });
 
     // 等待发布完成

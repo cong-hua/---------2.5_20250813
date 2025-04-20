@@ -1191,6 +1191,11 @@ async function publishNote(noteData, index) {
 
     addLog(`第${index + 1}篇笔记发布准备完成，请手动点击发布按钮`, 'success');
     
+    // 检查商品规格
+    if (noteData.productSpec) {
+      addLog(`商品规格设置为: ${noteData.productSpec}`, 'info');
+    }
+    
     // 标记笔记为已发布
     notes[index].published = true;
     
@@ -1932,14 +1937,41 @@ async function handleImageUpload(files, index, panel) {
   addLog(`选择了 ${files.length} 张图片`);
   
   try {
-    // 加载所有图片
-    const loadedImages = await Promise.all(Array.from(files).map((file, i) => {
+    // 将FileList转换为数组
+    const fileArray = Array.from(files);
+    
+    // 提取文件名中的数字并排序
+    const sortedFiles = fileArray.sort((a, b) => {
+      // 从文件名中提取数字
+      const getNumberFromFilename = (filename) => {
+        const matches = filename.match(/\d+/g);
+        if (matches && matches.length > 0) {
+          // 如果找到多个数字，取第一个
+          return parseInt(matches[0]);
+        }
+        return Infinity; // 没有数字的排在后面
+      };
+      
+      const numA = getNumberFromFilename(a.name);
+      const numB = getNumberFromFilename(b.name);
+      
+      // 调试信息
+      console.log(`排序: ${a.name} (${numA}) vs ${b.name} (${numB})`);
+      
+      return numA - numB; // 按数字升序排序
+    });
+    
+    addLog(`图片已按文件名中的数字排序`);
+    
+    // 加载所有排序后的图片
+    const loadedImages = await Promise.all(sortedFiles.map((file, i) => {
       return new Promise((resolve) => {
         const reader = new FileReader();
         reader.onload = (e) => resolve({
           index: i,
           file,
-          dataUrl: e.target.result
+          dataUrl: e.target.result,
+          name: file.name // 保存文件名用于显示
         });
         reader.readAsDataURL(file);
       });
@@ -1951,8 +1983,26 @@ async function handleImageUpload(files, index, panel) {
       notes[index].imageUrls[i] = imageData.dataUrl;
       
       const wrapper = createImagePreview(imageData, i, panel, index);
+      
+      // 在预览中显示文件名提示
+      const nameLabel = document.createElement('span');
+      nameLabel.className = 'image-filename';
+      nameLabel.textContent = imageData.name;
+      nameLabel.style.position = 'absolute';
+      nameLabel.style.bottom = '0';
+      nameLabel.style.left = '0';
+      nameLabel.style.right = '0';
+      nameLabel.style.fontSize = '8px';
+      nameLabel.style.background = 'rgba(0,0,0,0.5)';
+      nameLabel.style.color = 'white';
+      nameLabel.style.padding = '2px';
+      nameLabel.style.textOverflow = 'ellipsis';
+      nameLabel.style.overflow = 'hidden';
+      nameLabel.style.whiteSpace = 'nowrap';
+      wrapper.appendChild(nameLabel);
+      
       imagePreview.appendChild(wrapper);
-      addLog(`已加载第 ${i + 1} 张图片`);
+      addLog(`已加载第 ${i + 1} 张图片: ${imageData.name}`);
     });
     
     addLog(`共加载 ${loadedImages.length} 张图片`, 'success');
@@ -2485,50 +2535,103 @@ async function importFromFeishu() {
         }
       }
       
-      // 收集图片 - 重要修改：确保正确存储为base64格式
+      // 收集图片 - 重要修改：确保正确存储为base64格式并按文件名排序
       const images = [];
       const imageUrls = {};
       
       if (note.images && Array.isArray(note.images) && note.images.length > 0) {
+        // 创建带索引和文件名的图片数组，用于排序
+        const imageDataArray = [];
+        
         // 处理预加载后的图片格式
         for (let index = 0; index < note.images.length; index++) {
           const img = note.images[index];
           if (img) {
-            // 保存原始对象到images数组
-            images[index] = img.blob || img.data;
+            // 设置一个默认的文件名，从名称中提取，或者使用索引
+            let filename = '';
             
-            // 重要：确保imageUrls中存储的是base64字符串
-            if (img.data || img.blob) {
-              const blob = img.data || img.blob;
-              // 将Blob转换为base64
+            // 尝试从原始对象中获取文件名
+            if (img.name) {
+              filename = img.name;
+            } else if (img.file && img.file.name) {
+              filename = img.file.name;
+            } else if (note.imageNames && note.imageNames[index]) {
+              filename = note.imageNames[index];
+            } else {
+              // 如果无法获取文件名，则使用索引作为名称
+              filename = `image_${index + 1}.jpg`;
+            }
+            
+            // 保存图片数据和文件名，以便之后排序
+            imageDataArray.push({
+              index,
+              filename,
+              blob: img.blob || img.data,
+              url: img.url || '',
+              blobUrl: img.blobUrl || ''
+            });
+          }
+        }
+        
+        // 按文件名中的数字排序图片
+        imageDataArray.sort((a, b) => {
+          // 从文件名中提取数字
+          const getNumberFromFilename = (filename) => {
+            const matches = filename.match(/\d+/g);
+            if (matches && matches.length > 0) {
+              // 如果找到多个数字，取第一个
+              return parseInt(matches[0]);
+            }
+            return Infinity; // 没有数字的排在后面
+          };
+          
+          const numA = getNumberFromFilename(a.filename);
+          const numB = getNumberFromFilename(b.filename);
+          
+          // 记录排序日志
+          console.log(`排序飞书图片: ${a.filename} (${numA}) vs ${b.filename} (${numB})`);
+          
+          return numA - numB; // 按数字升序排序
+        });
+        
+        addLog(`飞书图片已按文件名中的数字排序`, 'info');
+        
+        // 将排序后的图片数据保存回对应的数组
+        for (let i = 0; i < imageDataArray.length; i++) {
+          const imgData = imageDataArray[i];
+          
+          // 保存原始Blob对象到images数组
+          images[i] = imgData.blob;
+          
+          // 将Blob转换为base64
+          if (imgData.blob) {
+            const base64 = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result);
+              reader.readAsDataURL(imgData.blob);
+            });
+            imageUrls[i] = base64;
+            addLog(`已处理第 ${i + 1} 张图片为base64格式：${imgData.filename}`, 'info');
+          } else if (imgData.blobUrl) {
+            // 尝试从blobUrl获取内容并转换
+            try {
+              const response = await fetch(imgData.blobUrl);
+              const blob = await response.blob();
               const base64 = await new Promise((resolve) => {
                 const reader = new FileReader();
                 reader.onloadend = () => resolve(reader.result);
                 reader.readAsDataURL(blob);
               });
-              imageUrls[index] = base64;
-              addLog(`已处理第 ${index + 1} 张图片为base64格式`, 'info');
-            } else if (img.blobUrl) {
-              // 尝试从blobUrl获取内容并转换
-              try {
-                const response = await fetch(img.blobUrl);
-                const blob = await response.blob();
-                const base64 = await new Promise((resolve) => {
-                  const reader = new FileReader();
-                  reader.onloadend = () => resolve(reader.result);
-                  reader.readAsDataURL(blob);
-                });
-                imageUrls[index] = base64;
-                addLog(`已从blobUrl处理第 ${index + 1} 张图片`, 'info');
-              } catch (e) {
-                addLog(`处理图片URL失败: ${e.message}`, 'error');
-                // 如果失败，尝试使用其他可用的URL
-                imageUrls[index] = img.blobUrl || img.url || '';
-              }
-            } else {
-              // 使用其他可用的URL
-              imageUrls[index] = img.url || '';
+              imageUrls[i] = base64;
+              addLog(`已从blobUrl处理第 ${i + 1} 张图片：${imgData.filename}`, 'info');
+            } catch (e) {
+              addLog(`处理图片URL失败: ${e.message}`, 'error');
+              // 如果失败，尝试使用其他可用的URL
+              imageUrls[i] = imgData.blobUrl || imgData.url || '';
             }
+          } else {
+            // 使用其他可用的URL
+            imageUrls[i] = imgData.url || '';
           }
         }
       }
