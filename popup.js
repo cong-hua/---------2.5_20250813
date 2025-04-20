@@ -2370,7 +2370,7 @@ function setupMessageListener() {
           if (noteIndex !== -1) {
             const note = notes[noteIndex];
             // 调用飞书客户端更新发布状态
-            window.feishuClient.updatePublishStatus(note.id, note.title, true)
+            window.feishuClient.updatePublishStatus(note.recordId || note.id, note.title, true)
               .then(() => {
                 addLog(`飞书状态更新成功: ${note.title}`, 'success');
               })

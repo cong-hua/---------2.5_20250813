@@ -2287,6 +2287,25 @@ class FeishuBitableClient {
     
     return safeName;
   }
+
+  /**
+   * 更新笔记发布状态 (用于与popup.js兼容的接口)
+   * @param {string} recordId 记录ID
+   * @param {string} title 笔记标题 (用于日志)
+   * @param {boolean} status 发布状态
+   * @returns {Promise<Object>} 更新结果
+   */
+  async updatePublishStatus(recordId, title, status) {
+    console.log(`[updatePublishStatus] 更新笔记 "${title}" (ID: ${recordId}) 的发布状态为: ${status}`);
+    
+    if (!recordId) {
+      console.error(`[updatePublishStatus] 无法更新发布状态: 未提供记录ID`);
+      return { success: false, error: '未提供记录ID' };
+    }
+    
+    // 调用实际的实现函数
+    return this.updateRecordPublishStatus(recordId);
+  }
 }
 
 // 导出实例
