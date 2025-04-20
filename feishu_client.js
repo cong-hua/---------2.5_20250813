@@ -828,6 +828,84 @@ class FeishuBitableClient {
       
       console.log(`[convertToNotes] 统计: ${notesWithImages}/${notes.length} 条笔记包含图片，共 ${totalImageUrls} 张图片`);
       
+      // 对每个笔记的图片进行排序（按文件名中的数字）
+      for (const note of notes) {
+        if (note.imageUrls && Array.isArray(note.imageUrls) && note.imageUrls.length > 1) {
+          try {
+            // 创建一个包含原始数据和文件名的数组
+            const imageDataWithName = note.imageUrls.map(img => {
+              let filename = '';
+              
+              if (typeof img === 'string') {
+                // 从URL中提取文件名
+                const urlParts = img.split('/');
+                filename = urlParts[urlParts.length - 1] || '';
+              } else if (img && typeof img === 'object') {
+                // 从对象中提取文件名
+                filename = img.name || img.filename || 
+                           (img.file && img.file.name) || '';
+                           
+                // 如果没有直接的文件名，尝试从URL中提取
+                if (!filename && img.url) {
+                  const urlParts = img.url.split('/');
+                  filename = urlParts[urlParts.length - 1] || '';
+                }
+              }
+              
+              return { data: img, filename };
+            });
+            
+            // 排序函数，从文件名中提取数字进行排序
+            const getNumberFromFilename = (filename) => {
+              if (!filename) return Infinity;
+              
+              // 先尝试提取数字模式
+              const matches = filename.match(/\d+/g);
+              if (matches && matches.length > 0) {
+                // 从找到的所有数字中选择最合适的排序数字
+                // 1. 如果有"稿定设计-数字"格式，优先使用该数字
+                const designNumberMatch = filename.match(/[稿设计定][\s\-_]*(\d+)/);
+                if (designNumberMatch && designNumberMatch[1]) {
+                  return parseInt(designNumberMatch[1]);
+                }
+                
+                // 2. 如果有"数字.jpg"这样的格式，使用该数字
+                const extensionNumberMatch = filename.match(/(\d+)\.[a-zA-Z]+$/);
+                if (extensionNumberMatch && extensionNumberMatch[1]) {
+                  return parseInt(extensionNumberMatch[1]);
+                }
+                
+                // 3. 默认使用找到的第一个数字
+                return parseInt(matches[0]);
+              }
+              
+              return Infinity; // 没有数字的排在后面
+            };
+            
+            // 按文件名中的数字排序
+            imageDataWithName.sort((a, b) => {
+              const numA = getNumberFromFilename(a.filename);
+              const numB = getNumberFromFilename(b.filename);
+              
+              console.log(`排序飞书图片: ${a.filename} (${numA}) vs ${b.filename} (${numB})`);
+              
+              return numA - numB; // 按数字升序排序
+            });
+            
+            // 使用排序后的顺序重新构建imageUrls数组
+            note.imageUrls = imageDataWithName.map(item => item.data);
+            
+            console.log(`笔记 "${note.title.substring(0, 20)}..." 的图片已按文件名中的数字排序，共 ${note.imageUrls.length} 张`);
+          } catch (error) {
+            console.error('对笔记图片排序失败:', error);
+            // 排序失败时保持原有顺序
+          }
+        }
+      }
+      
+      // 保存缓存
+      this.notesCache = notes;
+      
       return notes;
     } catch (error) {
       console.error('[convertToNotes] 转换笔记数据失败:', error);

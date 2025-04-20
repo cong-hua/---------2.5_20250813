@@ -924,6 +924,16 @@ async function publishNote(noteData) {
     await new Promise(resolve => setTimeout(resolve, 30000));
 
     publishState.currentAction = '发布完成';
+    
+    // 向popup发送笔记已发布的消息，包含recordId以便更新飞书状态
+    chrome.runtime.sendMessage({
+      type: 'PUBLISH_COMPLETED',
+      data: {
+        noteId: noteData.recordId,
+        noteTitle: noteData.title,
+        from: noteData.from || ''
+      }
+    }).catch(error => console.error('发送发布完成消息失败:', error));
 
   } catch (error) {
     console.error('发布笔记失败:', error);

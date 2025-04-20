@@ -1944,19 +1944,36 @@ async function handleImageUpload(files, index, panel) {
     const sortedFiles = fileArray.sort((a, b) => {
       // 从文件名中提取数字
       const getNumberFromFilename = (filename) => {
+        if (!filename) return Infinity;
+        
+        // 先尝试提取数字模式
         const matches = filename.match(/\d+/g);
         if (matches && matches.length > 0) {
-          // 如果找到多个数字，取第一个
+          // 从找到的所有数字中选择最合适的排序数字
+          // 1. 如果有"稿定设计-数字"格式，优先使用该数字
+          const designNumberMatch = filename.match(/[稿设计定][\s\-_]*(\d+)/);
+          if (designNumberMatch && designNumberMatch[1]) {
+            return parseInt(designNumberMatch[1]);
+          }
+          
+          // 2. 如果有"数字.jpg"这样的格式，使用该数字
+          const extensionNumberMatch = filename.match(/(\d+)\.[a-zA-Z]+$/);
+          if (extensionNumberMatch && extensionNumberMatch[1]) {
+            return parseInt(extensionNumberMatch[1]);
+          }
+          
+          // 3. 默认使用找到的第一个数字
           return parseInt(matches[0]);
         }
+        
         return Infinity; // 没有数字的排在后面
       };
       
       const numA = getNumberFromFilename(a.name);
       const numB = getNumberFromFilename(b.name);
       
-      // 调试信息
-      console.log(`排序: ${a.name} (${numA}) vs ${b.name} (${numB})`);
+      // 记录排序日志
+      console.log(`排序上传图片: ${a.name} (${numA}) vs ${b.name} (${numB})`);
       
       return numA - numB; // 按数字升序排序
     });
@@ -2337,6 +2354,37 @@ function setupMessageListener() {
       addLog(`发布出错: ${message.data}`, 'error');
       isPublishing = false;
       updateButtonStatus(false);
+    } else if (message.type === 'PUBLISH_COMPLETED') {
+      // 处理笔记发布完成消息
+      addLog(`笔记《${message.data.noteTitle}》发布完成`, 'success', `ID: ${message.data.noteId}`);
+      
+      // 更新飞书状态
+      if (window.feishuClient && notes.length > 0) {
+        try {
+          // 查找当前笔记在notes数组中的索引
+          const noteIndex = notes.findIndex(note => 
+            note.title === message.data.noteTitle || 
+            (message.data.from && note.id === message.data.from)
+          );
+          
+          if (noteIndex !== -1) {
+            const note = notes[noteIndex];
+            // 调用飞书客户端更新发布状态
+            window.feishuClient.updatePublishStatus(note.id, note.title, true)
+              .then(() => {
+                addLog(`飞书状态更新成功: ${note.title}`, 'success');
+              })
+              .catch(error => {
+                addLog(`飞书状态更新失败: ${error.message}`, 'error');
+                console.error('[增强日志] 更新飞书状态失败:', error);
+              });
+          } else {
+            console.log('[增强日志] 找不到匹配的笔记进行飞书状态更新:', message);
+          }
+        } catch (error) {
+          console.error('[增强日志] 处理发布完成消息出错:', error);
+        }
+      }
     }
   });
 }
@@ -2577,11 +2625,28 @@ async function importFromFeishu() {
         imageDataArray.sort((a, b) => {
           // 从文件名中提取数字
           const getNumberFromFilename = (filename) => {
+            if (!filename) return Infinity;
+            
+            // 先尝试提取数字模式
             const matches = filename.match(/\d+/g);
             if (matches && matches.length > 0) {
-              // 如果找到多个数字，取第一个
+              // 从找到的所有数字中选择最合适的排序数字
+              // 1. 如果有"稿定设计-数字"格式，优先使用该数字
+              const designNumberMatch = filename.match(/[稿设计定][\s\-_]*(\d+)/);
+              if (designNumberMatch && designNumberMatch[1]) {
+                return parseInt(designNumberMatch[1]);
+              }
+              
+              // 2. 如果有"数字.jpg"这样的格式，使用该数字
+              const extensionNumberMatch = filename.match(/(\d+)\.[a-zA-Z]+$/);
+              if (extensionNumberMatch && extensionNumberMatch[1]) {
+                return parseInt(extensionNumberMatch[1]);
+              }
+              
+              // 3. 默认使用找到的第一个数字
               return parseInt(matches[0]);
             }
+            
             return Infinity; // 没有数字的排在后面
           };
           
