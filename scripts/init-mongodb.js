@@ -131,6 +131,13 @@ class DatabaseInit {
     try {
       console.log('清理数据库...');
       
+      // 清理所有数据（如果需要完全重置）
+      if (process.env.CLEANUP_ALL_DATA === 'true') {
+        await User.deleteMany({});
+        await PointsRecord.deleteMany({});
+        console.log('所有数据清理完成');
+      }
+      
       // 清理测试数据（可选）
       if (process.env.CLEANUP_TEST_DATA === 'true') {
         await User.deleteMany({ username: 'testuser' });
@@ -182,8 +189,13 @@ if (require.main === module) {
   
   const options = {
     createTestData: process.argv.includes('--with-test-data'),
-    cleanup: process.argv.includes('--cleanup')
+    cleanup: process.argv.includes('--cleanup'),
+    cleanupAllData: process.argv.includes('--cleanup-all')
   };
+  
+  if (options.cleanupAllData) {
+    process.env.CLEANUP_ALL_DATA = 'true';
+  }
   
   init.init(options)
     .then(() => {

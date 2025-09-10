@@ -183,6 +183,33 @@ app.post('/api/auth/login', async (req, res) => {
     });
   } catch (error) {
     console.error('用户登录失败:', error);
+    if (error.message === '用户不存在' || error.message === '密码错误') {
+      res.status(400).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: '服务器内部错误' });
+    }
+  }
+});
+
+// Token验证接口
+app.post('/api/auth/verify', authenticateToken, async (req, res) => {
+  try {
+    const user = await UserService.getUserById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        points: user.points
+      }
+    });
+  } catch (error) {
+    console.error('Token验证失败:', error);
     res.status(500).json({ error: '服务器内部错误' });
   }
 });
@@ -714,6 +741,690 @@ app.get('/ext/bridge', (req, res) => {
   `);
 });
 
+// 仪表板页面
+app.get('/dashboard', authenticateToken, async (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>用户中心 - 小红书插件</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: #f5f5f5;
+                min-height: 100vh;
+            }
+            
+            .header {
+                background: white;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                padding: 0 20px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                height: 70px;
+            }
+            
+            .logo {
+                font-size: 24px;
+                font-weight: 600;
+                color: #ff6b6b;
+            }
+            
+            .user-info {
+                display: flex;
+                align-items: center;
+                gap: 15px;
+            }
+            
+            .user-avatar {
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                background: #ff6b6b;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                font-weight: 600;
+            }
+            
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 40px 20px;
+            }
+            
+            .hero {
+                background: linear-gradient(135deg, #ff6b6b 0%, #ff8e8e 100%);
+                color: white;
+                padding: 60px 40px;
+                border-radius: 20px;
+                margin-bottom: 40px;
+                text-align: center;
+            }
+            
+            .hero h1 {
+                font-size: 36px;
+                margin-bottom: 20px;
+            }
+            
+            .hero p {
+                font-size: 18px;
+                opacity: 0.9;
+                max-width: 600px;
+                margin: 0 auto;
+                line-height: 1.6;
+            }
+            
+            .card {
+                background: white;
+                border-radius: 15px;
+                padding: 30px;
+                box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+                margin-bottom: 30px;
+            }
+            
+            .card h2 {
+                color: #333;
+                margin-bottom: 20px;
+                font-size: 24px;
+            }
+            
+            .points-display {
+                font-size: 48px;
+                font-weight: 700;
+                color: #ff6b6b;
+                text-align: center;
+                margin: 30px 0;
+            }
+            
+            .action-buttons {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 20px;
+                margin-top: 30px;
+            }
+            
+            .btn {
+                padding: 15px 25px;
+                border: none;
+                border-radius: 10px;
+                font-size: 16px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                text-decoration: none;
+                display: inline-block;
+                text-align: center;
+            }
+            
+            .btn-primary {
+                background: #ff6b6b;
+                color: white;
+            }
+            
+            .btn-primary:hover {
+                background: #ff5252;
+                transform: translateY(-2px);
+            }
+            
+            .btn-secondary {
+                background: #f8f9fa;
+                color: #333;
+                border: 2px solid #e9ecef;
+            }
+            
+            .btn-secondary:hover {
+                background: #e9ecef;
+            }
+            
+            .features {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 30px;
+                margin-top: 40px;
+            }
+            
+            .feature {
+                text-align: center;
+                padding: 30px;
+                border-radius: 15px;
+                background: white;
+                box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            }
+            
+            .feature-icon {
+                font-size: 48px;
+                margin-bottom: 20px;
+            }
+            
+            .feature h3 {
+                color: #333;
+                margin-bottom: 15px;
+                font-size: 20px;
+            }
+            
+            .feature p {
+                color: #666;
+                line-height: 1.6;
+            }
+            
+            .logout-btn {
+                background: #dc3545;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 14px;
+            }
+            
+            .logout-btn:hover {
+                background: #c82333;
+            }
+        </style>
+    </head>
+    <body>
+        <header class="header">
+            <div class="logo">小红书插件</div>
+            <div class="user-info">
+                <span id="username">用户名</span>
+                <div class="user-avatar" id="avatar">U</div>
+                <button class="logout-btn" onclick="logout()">退出登录</button>
+            </div>
+        </header>
+        
+        <div class="container">
+            <div class="hero">
+                <h1>欢迎使用小红书插件</h1>
+                <p>专业的自动化发布工具，让您的内容管理更加高效。支持定时发布、批量操作、数据分析等功能。</p>
+            </div>
+            
+            <div class="card">
+                <h2>我的积分</h2>
+                <div class="points-display" id="points">0</div>
+                <div class="action-buttons">
+                    <a href="#" class="btn btn-primary" onclick="recharge()">充值积分</a>
+                    <a href="#" class="btn btn-secondary" onclick="viewRecords()">查看记录</a>
+                </div>
+            </div>
+            
+            <div class="features">
+                <div class="feature">
+                    <div class="feature-icon">📝</div>
+                    <h3>智能发布</h3>
+                    <p>支持定时发布、批量发布，让内容管理更加高效智能。</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">📊</div>
+                    <h3>数据分析</h3>
+                    <p>详细的数据统计和分析，帮助您了解内容表现。</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔧</div>
+                    <h3>插件配置</h3>
+                    <p>灵活的配置选项，满足不同用户的需求。</p>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            const API_BASE = '/api';
+            
+            // 检查登录状态
+            function checkAuth() {
+                const token = localStorage.getItem('token');
+                const user = localStorage.getItem('user');
+                
+                if (!token || !user) {
+                    window.location.href = '/';
+                    return;
+                }
+                
+                const userData = JSON.parse(user);
+                document.getElementById('username').textContent = userData.username;
+                document.getElementById('avatar').textContent = userData.username.charAt(0).toUpperCase();
+                
+                // 获取用户积分
+                fetchUserPoints(token);
+            }
+            
+            // 获取用户积分
+            async function fetchUserPoints(token) {
+                try {
+                    const response = await fetch(\`\${API_BASE}/points/info\`, {
+                        headers: {
+                            'Authorization': \`Bearer \${token}\`
+                        }
+                    });
+                    
+                    const data = await response.json();
+                    if (response.ok && data.success) {
+                        document.getElementById('points').textContent = data.points.current;
+                    }
+                } catch (error) {
+                    console.error('获取积分失败:', error);
+                }
+            }
+            
+            // 充值积分
+            function recharge() {
+                alert('充值功能开发中，敬请期待！');
+            }
+            
+            // 查看记录
+            function viewRecords() {
+                alert('记录查看功能开发中，敬请期待！');
+            }
+            
+            // 退出登录
+            function logout() {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/';
+            }
+            
+            // 页面加载时检查登录状态
+            window.addEventListener('DOMContentLoaded', checkAuth);
+        </script>
+    </body>
+    </html>
+  `);
+});
+
+// 根路径重定向到登录页面
+app.get('/', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>小红书插件 - 用户中心</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: linear-gradient(135deg, #ff6b6b 0%, #ff8e8e 100%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }
+            
+            .container {
+                background: white;
+                border-radius: 20px;
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+                overflow: hidden;
+                width: 100%;
+                max-width: 800px;
+                min-height: 500px;
+                display: flex;
+            }
+            
+            .hero {
+                flex: 1;
+                background: linear-gradient(135deg, #ff6b6b 0%, #ff8e8e 100%);
+                color: white;
+                padding: 40px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .hero::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="2"/></svg>');
+                opacity: 0.1;
+            }
+            
+            .hero h1 {
+                font-size: 32px;
+                margin-bottom: 20px;
+                position: relative;
+                z-index: 1;
+            }
+            
+            .hero p {
+                font-size: 16px;
+                line-height: 1.6;
+                opacity: 0.9;
+                position: relative;
+                z-index: 1;
+            }
+            
+            .form-container {
+                flex: 1;
+                padding: 40px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+            }
+            
+            .tabs {
+                display: flex;
+                margin-bottom: 30px;
+                border-bottom: 2px solid #f0f0f0;
+            }
+            
+            .tab {
+                flex: 1;
+                padding: 15px;
+                text-align: center;
+                cursor: pointer;
+                border: none;
+                background: none;
+                font-size: 16px;
+                color: #666;
+                transition: all 0.3s ease;
+            }
+            
+            .tab.active {
+                color: #ff6b6b;
+                border-bottom: 2px solid #ff6b6b;
+                margin-bottom: -2px;
+            }
+            
+            .form {
+                display: none;
+            }
+            
+            .form.active {
+                display: block;
+            }
+            
+            .form-group {
+                margin-bottom: 20px;
+            }
+            
+            .form-group label {
+                display: block;
+                margin-bottom: 8px;
+                color: #333;
+                font-weight: 500;
+            }
+            
+            .form-group input {
+                width: 100%;
+                padding: 12px 16px;
+                border: 2px solid #e0e0e0;
+                border-radius: 8px;
+                font-size: 16px;
+                transition: border-color 0.3s ease;
+            }
+            
+            .form-group input:focus {
+                outline: none;
+                border-color: #ff6b6b;
+            }
+            
+            .btn {
+                width: 100%;
+                padding: 14px;
+                background: #ff6b6b;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 16px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: background 0.3s ease;
+            }
+            
+            .btn:hover {
+                background: #ff5252;
+            }
+            
+            .btn:disabled {
+                background: #ccc;
+                cursor: not-allowed;
+            }
+            
+            .alert {
+                padding: 12px;
+                border-radius: 8px;
+                margin-bottom: 20px;
+                font-size: 14px;
+                display: none;
+            }
+            
+            .alert.success {
+                background: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }
+            
+            .alert.error {
+                background: #f8d7da;
+                color: #721c24;
+                border: 1px solid #f5c6cb;
+            }
+            
+            .loading {
+                display: inline-block;
+                width: 20px;
+                height: 20px;
+                border: 2px solid #ffffff;
+                border-radius: 50%;
+                border-top-color: transparent;
+                animation: spin 1s ease-in-out infinite;
+            }
+            
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="hero">
+                <h1>小红书插件</h1>
+                <p>专业的自动化发布工具，让您的内容管理更加高效。支持定时发布、批量操作、数据分析等功能。</p>
+            </div>
+            <div class="form-container">
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('login')">登录</button>
+                    <button class="tab" onclick="switchTab('register')">注册</button>
+                </div>
+                
+                <div class="alert" id="alert"></div>
+                
+                <!-- 登录表单 -->
+                <form class="form active" id="login-form" onsubmit="handleLogin(event)">
+                    <div class="form-group">
+                        <label>用户名</label>
+                        <input type="text" id="login-username" required>
+                    </div>
+                    <div class="form-group">
+                        <label>密码</label>
+                        <input type="password" id="login-password" required>
+                    </div>
+                    <button type="submit" class="btn" id="login-btn">登录</button>
+                </form>
+                
+                <!-- 注册表单 -->
+                <form class="form" id="register-form" onsubmit="handleRegister(event)">
+                    <div class="form-group">
+                        <label>用户名</label>
+                        <input type="text" id="register-username" required>
+                    </div>
+                    <div class="form-group">
+                        <label>邮箱</label>
+                        <input type="email" id="register-email" required>
+                    </div>
+                    <div class="form-group">
+                        <label>密码</label>
+                        <input type="password" id="register-password" required>
+                    </div>
+                    <button type="submit" class="btn" id="register-btn">注册</button>
+                </form>
+            </div>
+        </div>
+
+        <script>
+            const API_BASE = '/api';
+            
+            function switchTab(tab) {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.form').forEach(f => f.classList.remove('active'));
+                
+                if (tab === 'login') {
+                    document.querySelectorAll('.tab')[0].classList.add('active');
+                    document.getElementById('login-form').classList.add('active');
+                } else {
+                    document.querySelectorAll('.tab')[1].classList.add('active');
+                    document.getElementById('register-form').classList.add('active');
+                }
+                
+                hideAlert();
+            }
+            
+            function showAlert(message, type) {
+                const alert = document.getElementById('alert');
+                alert.textContent = message;
+                alert.className = \`alert \${type}\`;
+                alert.style.display = 'block';
+            }
+            
+            function hideAlert() {
+                document.getElementById('alert').style.display = 'none';
+            }
+            
+            async function handleLogin(event) {
+                event.preventDefault();
+                
+                const username = document.getElementById('login-username').value;
+                const password = document.getElementById('login-password').value;
+                const btn = document.getElementById('login-btn');
+                
+                btn.disabled = true;
+                btn.innerHTML = '<span class="loading"></span> 登录中...';
+                
+                try {
+                    const response = await fetch(\`\${API_BASE}/auth/login\`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ username, password })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok && data.success) {
+                        localStorage.setItem('token', data.token);
+                        localStorage.setItem('user', JSON.stringify(data.user));
+                        showAlert('登录成功！正在跳转...', 'success');
+                        setTimeout(() => {
+                            window.location.href = '/dashboard';
+                        }, 1500);
+                    } else {
+                        showAlert(data.error || '登录失败', 'error');
+                    }
+                } catch (error) {
+                    showAlert('网络错误，请稍后重试', 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = '登录';
+                }
+            }
+            
+            async function handleRegister(event) {
+                event.preventDefault();
+                
+                const username = document.getElementById('register-username').value;
+                const email = document.getElementById('register-email').value;
+                const password = document.getElementById('register-password').value;
+                const btn = document.getElementById('register-btn');
+                
+                btn.disabled = true;
+                btn.innerHTML = '<span class="loading"></span> 注册中...';
+                
+                try {
+                    const response = await fetch(\`\${API_BASE}/auth/register\`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ username, email, password })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok && data.success) {
+                        localStorage.setItem('token', data.token);
+                        localStorage.setItem('user', JSON.stringify(data.user));
+                        showAlert('注册成功！正在跳转...', 'success');
+                        setTimeout(() => {
+                            window.location.href = '/dashboard';
+                        }, 1500);
+                    } else {
+                        showAlert(data.error || '注册失败', 'error');
+                    }
+                } catch (error) {
+                    showAlert('网络错误，请稍后重试', 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = '注册';
+                }
+            }
+            
+            // 检查是否已登录
+            window.addEventListener('DOMContentLoaded', () => {
+                const token = localStorage.getItem('token');
+                const user = localStorage.getItem('user');
+                
+                if (token && user) {
+                    // 验证token是否有效
+                    fetch(\`\${API_BASE}/auth/verify\`, {
+                        headers: {
+                            'Authorization': \`Bearer \${token}\`
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            window.location.href = '/dashboard';
+                        } else {
+                            localStorage.removeItem('token');
+                            localStorage.removeItem('user');
+                        }
+                    })
+                    .catch(() => {
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('user');
+                    });
+                }
+            });
+        </script>
+    </body>
+    </html>
+  `);
+});
+
 // 静态文件服务
 app.use(express.static('public'));
 
@@ -730,8 +1441,10 @@ app.use((req, res) => {
 
 // 健康检查 endpoint
 app.get('/health', (req, res) => {
+  const dbStatus = global.mongoConnected ? 'connected' : 'disconnected';
   res.json({ 
     status: 'ok', 
+    mongodb: dbStatus,
     message: '服务器正常运行',
     timestamp: new Date().toISOString(),
     port: PORT
