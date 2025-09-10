@@ -1350,9 +1350,16 @@ app.get('/recharge', (req, res) => {
             
             // 退出登录
             function logout() {
-                localStorage.removeItem('token');
-                localStorage.removeItem('user');
-                window.location.href = '/';
+                console.log('开始退出登录...');
+                try {
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    console.log('已清除本地存储，跳转到登录页...');
+                    window.location.href = '/';
+                } catch (error) {
+                    console.error('退出登录失败:', error);
+                    alert('退出登录失败，请重试');
+                }
             }
             
             // 页面加载时检查登录状态
@@ -1719,9 +1726,16 @@ app.get('/dashboard', async (req, res) => {
             
             // 退出登录
             function logout() {
-                localStorage.removeItem('token');
-                localStorage.removeItem('user');
-                window.location.href = '/';
+                console.log('开始退出登录...');
+                try {
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    console.log('已清除本地存储，跳转到登录页...');
+                    window.location.href = '/';
+                } catch (error) {
+                    console.error('退出登录失败:', error);
+                    alert('退出登录失败，请重试');
+                }
             }
             
             // 页面加载时检查登录状态
@@ -1944,23 +1958,23 @@ app.get('/', (req, res) => {
                 <div class="alert" id="alert"></div>
                 
                 <!-- 登录表单 -->
-                <form class="form active" id="login-form" onsubmit="handleLogin(event)">
+                <form class="form active" id="login-form" onsubmit="return handleLogin(event)">
                     <div class="form-group">
                         <label>用户名</label>
-                        <input type="text" id="login-username" required>
+                        <input type="text" id="login-username" required minlength="3">
                     </div>
                     <div class="form-group">
                         <label>密码</label>
-                        <input type="password" id="login-password" required>
+                        <input type="password" id="login-password" required minlength="6">
                     </div>
                     <button type="submit" class="btn" id="login-btn">登录</button>
                 </form>
                 
                 <!-- 注册表单 -->
-                <form class="form" id="register-form" onsubmit="handleRegister(event)">
+                <form class="form" id="register-form" onsubmit="return handleRegister(event)">
                     <div class="form-group">
                         <label>用户名</label>
-                        <input type="text" id="register-username" required>
+                        <input type="text" id="register-username" required minlength="3">
                     </div>
                     <div class="form-group">
                         <label>邮箱</label>
@@ -1968,7 +1982,7 @@ app.get('/', (req, res) => {
                     </div>
                     <div class="form-group">
                         <label>密码</label>
-                        <input type="password" id="register-password" required>
+                        <input type="password" id="register-password" required minlength="6">
                     </div>
                     <button type="submit" class="btn" id="register-btn">注册</button>
                 </form>
@@ -2011,6 +2025,17 @@ app.get('/', (req, res) => {
                 const password = document.getElementById('login-password').value;
                 const btn = document.getElementById('login-btn');
                 
+                // 基本验证
+                if (!username || username.length < 3) {
+                    showAlert('用户名至少需要3个字符', 'error');
+                    return false;
+                }
+                
+                if (!password || password.length < 6) {
+                    showAlert('密码至少需要6个字符', 'error');
+                    return false;
+                }
+                
                 btn.disabled = true;
                 btn.innerHTML = '<span class="loading"></span> 登录中...';
                 
@@ -2036,11 +2061,14 @@ app.get('/', (req, res) => {
                         showAlert(data.error || '登录失败', 'error');
                     }
                 } catch (error) {
+                    console.error('登录请求失败:', error);
                     showAlert('网络错误，请稍后重试', 'error');
                 } finally {
                     btn.disabled = false;
                     btn.textContent = '登录';
                 }
+                
+                return false;
             }
             
             async function handleRegister(event) {
@@ -2050,6 +2078,22 @@ app.get('/', (req, res) => {
                 const email = document.getElementById('register-email').value;
                 const password = document.getElementById('register-password').value;
                 const btn = document.getElementById('register-btn');
+                
+                // 基本验证
+                if (!username || username.length < 3) {
+                    showAlert('用户名至少需要3个字符', 'error');
+                    return false;
+                }
+                
+                if (!email || !email.includes('@')) {
+                    showAlert('请输入有效的邮箱地址', 'error');
+                    return false;
+                }
+                
+                if (!password || password.length < 6) {
+                    showAlert('密码至少需要6个字符', 'error');
+                    return false;
+                }
                 
                 btn.disabled = true;
                 btn.innerHTML = '<span class="loading"></span> 注册中...';
@@ -2076,11 +2120,14 @@ app.get('/', (req, res) => {
                         showAlert(data.error || '注册失败', 'error');
                     }
                 } catch (error) {
+                    console.error('注册请求失败:', error);
                     showAlert('网络错误，请稍后重试', 'error');
                 } finally {
                     btn.disabled = false;
                     btn.textContent = '注册';
                 }
+                
+                return false;
             }
             
             // 检查是否已登录
