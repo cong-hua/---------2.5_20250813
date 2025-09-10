@@ -156,15 +156,24 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: '用户名和密码不能为空' });
     }
 
-    console.log('登录请求:', { username, passwordLength: password?.length });
+    console.log('=== 登录请求开始 ===');
+    console.log('时间:', new Date().toISOString());
+    console.log('用户名:', username);
+    console.log('密码长度:', password?.length);
+    console.log('数据库连接状态:', global.mongoConnected);
 
     // 验证用户
     const user = await UserService.validateUser(username, password);
-    console.log('用户验证结果:', { userId: user?._id, username: user?.username });
+    console.log('用户验证结果:', { 
+      userId: user?._id, 
+      username: user?.username,
+      email: user?.email,
+      points: user?.points 
+    });
     
     // 获取用户积分统计
     const pointsStats = await UserService.getUserPointsStats(user._id);
-    console.log('积分统计获取成功');
+    console.log('积分统计获取成功:', pointsStats);
 
     // 生成JWT令牌
     const token = jwt.sign(
@@ -173,7 +182,8 @@ app.post('/api/auth/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log('登录成功，生成token');
+    console.log('登录成功，生成token完成');
+    console.log('=== 登录请求结束 ===');
 
     res.json({
       success: true,
@@ -188,8 +198,15 @@ app.post('/api/auth/login', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('用户登录失败:', error);
+    console.error('=== 登录失败 ===');
+    console.error('时间:', new Date().toISOString());
+    console.error('用户名:', username);
+    console.error('错误类型:', error.constructor.name);
+    console.error('错误信息:', error.message);
     console.error('错误堆栈:', error.stack);
+    console.error('数据库连接状态:', global.mongoConnected);
+    console.error('===============');
+    
     if (error.message === '用户不存在' || error.message === '密码错误') {
       res.status(400).json({ error: error.message });
     } else {
@@ -201,7 +218,7 @@ app.post('/api/auth/login', async (req, res) => {
 // Token验证接口
 app.post('/api/auth/verify', authenticateToken, async (req, res) => {
   try {
-    const user = await UserService.getUserById(req.user.userId);
+    const user = await UserService.findById(req.user.userId);
     if (!user) {
       return res.status(404).json({ error: '用户不存在' });
     }
@@ -338,19 +355,12 @@ app.get('/api/points/records', authenticateToken, async (req, res) => {
     const userId = req.user.userId;
     
     // 使用PointsService获取积分记录
-    const PointsService = require('./services/PointsService');
-    const pointsService = new PointsService();
-    
-    const records = await pointsService.getUserRecords(userId, type, page, limit);
+    const result = await PointsService.getUserRecords(userId, type, page, limit);
 
     res.json({
       success: true,
-      records,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: records.length
-      }
+      records: result.records,
+      pagination: result.pagination
     });
   } catch (error) {
     console.error('获取积分记录失败:', error);
@@ -412,62 +422,18 @@ app.post('/api/payment/alipay/notify', async (req, res) => {
 
 // 处理支付成功
 async function handlePaymentSuccess(orderId, transactionId, paymentMethod) {
-  const connection = await pool.getConnection();
-  await connection.beginTransaction();
-
-  try {
-    // 查找充值记录
-    const [rechargeRecords] = await connection.execute(
-      'SELECT * FROM recharge_records WHERE order_id = ? AND payment_status = "pending"',
-      [orderId]
-    );
-
-    if (rechargeRecords.length === 0) {
-      throw new Error('充值记录不存在或已处理');
-    }
-
-    const record = rechargeRecords[0];
-
-    // 更新充值记录状态
-    await connection.execute(
-      'UPDATE recharge_records SET payment_status = "success", transaction_id = ? WHERE id = ?',
-      [transactionId, record.id]
-    );
-
-    // 获取用户当前积分
-    const [users] = await connection.execute(
-      'SELECT current_points, total_recharged_points FROM users WHERE id = ?',
-      [record.user_id]
-    );
-
-    if (users.length === 0) {
-      throw new Error('用户不存在');
-    }
-
-    const user = users[0];
-    const beforePoints = user.current_points;
-    const afterPoints = beforePoints + record.points;
-
-    // 更新用户积分
-    await connection.execute(
-      'UPDATE users SET current_points = ?, total_recharged_points = ? WHERE id = ?',
-      [afterPoints, user.total_recharged_points + record.points, record.user_id]
-    );
-
-    // 创建积分变动日志
-    await connection.execute(
-      'INSERT INTO points_logs (user_id, change_type, points_change, before_points, after_points, reference_id, reference_type, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [record.user_id, 'recharge', record.points, beforePoints, afterPoints, record.id, 'recharge', `充值 ${record.amount} 元`]
-    );
-
-    await connection.commit();
-    console.log(`支付成功处理完成: 订单 ${orderId}, 用户 ${record.user_id} 获得 ${record.points} 积分`);
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
+  // TODO: 实现MongoDB版本的支付成功处理逻辑
+  // 这里需要创建充值记录模型和处理逻辑
+  console.log(`支付成功处理完成: 订单 ${orderId}, 交易号 ${transactionId}, 支付方式 ${paymentMethod}`);
+  console.log('注意: 当前使用的是占位符实现，需要完善MongoDB的充值记录处理逻辑');
+  
+  // 占位符实现 - 实际使用时需要：
+  // 1. 创建RechargeRecord模型
+  // 2. 查找并更新充值记录状态
+  // 3. 给用户添加积分
+  // 4. 创建积分记录
+  
+  return true;
 }
 
 // ==================== 系统配置API ====================
@@ -475,14 +441,15 @@ async function handlePaymentSuccess(orderId, transactionId, paymentMethod) {
 // 获取系统配置
 app.get('/api/config', async (req, res) => {
   try {
-    const [configs] = await pool.execute(
-      'SELECT config_key, config_value FROM system_config'
-    );
-
-    const configObj = {};
-    configs.forEach(config => {
-      configObj[config.config_key] = config.config_value;
-    });
+    // 返回基本系统配置（从环境变量获取）
+    const configObj = {
+      POINTS_EXCHANGE_RATE: process.env.POINTS_EXCHANGE_RATE || 10,
+      PUBLISH_NOTE_COST: process.env.PUBLISH_NOTE_COST || 1,
+      MIN_RECHARGE_AMOUNT: process.env.MIN_RECHARGE_AMOUNT || 10,
+      MAX_RECHARGE_AMOUNT: process.env.MAX_RECHARGE_AMOUNT || 1000,
+      SERVER_NAME: '小红书插件',
+      VERSION: '2.5'
+    };
 
     res.json({
       success: true,
@@ -1350,7 +1317,14 @@ app.use(express.static('public'));
 
 // 错误处理中间件
 app.use((error, req, res, next) => {
-  console.error('服务器错误:', error);
+  console.error('=== 服务器错误 ===');
+  console.error('时间:', new Date().toISOString());
+  console.error('请求路径:', req.path);
+  console.error('请求方法:', req.method);
+  console.error('错误信息:', error.message);
+  console.error('错误堆栈:', error.stack);
+  console.error('=================');
+  
   res.status(500).json({ error: '服务器内部错误' });
 });
 

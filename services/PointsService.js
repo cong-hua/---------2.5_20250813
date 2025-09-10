@@ -12,7 +12,7 @@ class PointsService {
   // 获取用户积分汇总统计
   async getUserPointsSummary(userId) {
     const summary = await PointsRecord.aggregate([
-      { $match: { userId: mongoose.Types.ObjectId(userId) } },
+      { $match: { userId: new mongoose.Types.ObjectId(userId) } },
       {
         $group: {
           _id: null,
@@ -35,6 +35,33 @@ class PointsService {
       lastEarn: summary[0]?.lastEarn || null,
       lastConsume: summary[0]?.lastConsume || null,
       recordCount: summary[0]?.recordCount || 0
+    };
+  }
+
+  // 获取用户积分记录
+  async getUserRecords(userId, type = 'all', page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    
+    // 构建查询条件
+    const matchQuery = { userId: new mongoose.Types.ObjectId(userId) };
+    if (type !== 'all') {
+      matchQuery.type = type;
+    }
+    
+    const records = await PointsRecord.find(matchQuery)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await PointsRecord.countDocuments(matchQuery);
+
+    return {
+      records,
+      pagination: {
+        current: page,
+        total: Math.ceil(total / limit),
+        totalItems: total
+      }
     };
   }
 

@@ -57,20 +57,28 @@ class UserService {
 
   // 验证用户登录
   async validateUser(username, password) {
+    console.log('UserService.validateUser 开始验证用户:', username);
+    console.log('数据库连接状态:', mongoose.connection.readyState);
+    
     const user = await this.findByUsername(username);
     if (!user) {
+      console.log('用户不存在:', username);
       throw new Error('用户不存在');
     }
 
+    console.log('找到用户，开始验证密码');
     const isValidPassword = await user.validatePassword(password);
     if (!isValidPassword) {
+      console.log('密码验证失败');
       throw new Error('密码错误');
     }
 
+    console.log('密码验证成功，更新登录时间');
     // 更新最后登录时间
     user.lastLoginAt = new Date();
     await user.save();
 
+    console.log('用户验证成功:', user.username);
     return user;
   }
 
@@ -85,19 +93,24 @@ class UserService {
 
   // 获取用户积分统计
   async getUserPointsStats(userId) {
-    const stats = await PointsRecord.aggregate([
-      { $match: { userId: mongoose.Types.ObjectId(userId) } },
-      {
-        $group: {
-          _id: null,
-          totalEarned: { $sum: { $cond: [{ $eq: ['$type', 'earn'] }, '$points', 0] } },
-          totalConsumed: { $sum: { $cond: [{ $eq: ['$type', 'consume'] }, '$points', 0] } },
-          recordCount: { $sum: 1 }
+    try {
+      const stats = await PointsRecord.aggregate([
+        { $match: { userId: new mongoose.Types.ObjectId(userId) } },
+        {
+          $group: {
+            _id: null,
+            totalEarned: { $sum: { $cond: [{ $eq: ['$type', 'earn'] }, '$points', 0] } },
+            totalConsumed: { $sum: { $cond: [{ $eq: ['$type', 'consume'] }, '$points', 0] } },
+            recordCount: { $sum: 1 }
+          }
         }
-      }
-    ]);
+      ]);
 
-    return stats[0] || { totalEarned: 0, totalConsumed: 0, recordCount: 0 };
+      return stats[0] || { totalEarned: 0, totalConsumed: 0, recordCount: 0 };
+    } catch (error) {
+      console.error('获取用户积分统计失败:', error);
+      return { totalEarned: 0, totalConsumed: 0, recordCount: 0 };
+    }
   }
 
   // 获取用户积分记录
