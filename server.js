@@ -1,12 +1,14 @@
 // 小红书发布插件后端API服务器
 const express = require('express');
 const cors = require('cors');
-const mysql = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const axios = require('axios');
 const PaymentFactory = require('./payment');
+const { connectDB } = require('./config/database');
+const UserService = require('./services/UserService');
+const PointsService = require('./services/PointsService');
 require('dotenv').config();
 
 const app = express();
@@ -46,23 +48,35 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 数据库连接配置
-const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'xiaohongshu_plugin',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-};
-
-// 创建数据库连接池
-const pool = mysql.createPool(dbConfig);
+// 数据库连接将在应用启动时建立
 
 // 初始化支付工厂
 const paymentFactory = new PaymentFactory();
+
+// 启动服务器函数
+const startServer = async () => {
+  try {
+    // 连接数据库
+    await connectDB();
+    
+    // 启动服务器
+    global.server = app.listen(PORT, () => {
+      console.log(`服务器运行在端口 ${PORT}`);
+      console.log(`API文档: http://localhost:${PORT}/api`);
+      console.log(`健康检查: http://localhost:${PORT}/health`);
+    }).on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`端口 ${PORT} 已被占用`);
+      } else {
+        console.error('服务器启动失败:', err);
+      }
+      process.exit(1);
+    });
+  } catch (error) {
+    console.error('启动服务器失败:', error);
+    process.exit(1);
+  }
+};
 
 // JWT中间件
 const authenticateToken = (req, res, next) => {
@@ -93,33 +107,42 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: '用户名和密码不能为空' });
     }
 
-    // 检查用户是否已存在
-    const [existingUsers] = await pool.execute(
-      'SELECT id FROM users WHERE username = ? OR email = ?',
-      [username, email]
-    );
-
-    if (existingUsers.length > 0) {
-      return res.status(400).json({ error: '用户名或邮箱已存在' });
+    if (!email) {
+      return res.status(400).json({ error: '邮箱不能为空' });
     }
 
-    // 加密密码
-    const saltRounds = 10;
-    const passwordHash = await bcrypt.hash(password, saltRounds);
+    // 创建用户（Service层会自动处理密码加密和注册奖励）
+    const user = await UserService.createUser({
+      username,
+      email,
+      phone,
+      password
+    });
 
-    // 创建用户
-    const [result] = await pool.execute(
-      'INSERT INTO users (username, email, phone, password_hash) VALUES (?, ?, ?, ?)',
-      [username, email, phone, passwordHash]
+    // 生成JWT令牌
+    const token = jwt.sign(
+      { userId: user._id, username: user.username },
+      process.env.JWT_SECRET || 'default_secret',
+      { expiresIn: '7d' }
     );
 
     res.status(201).json({
       success: true,
       message: '用户注册成功',
-      userId: result.insertId
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        points: user.points,
+        createdAt: user.createdAt
+      }
     });
   } catch (error) {
     console.error('用户注册失败:', error);
+    if (error.message === '用户名或邮箱已存在') {
+      return res.status(400).json({ error: error.message });
+    }
     res.status(500).json({ error: '服务器内部错误' });
   }
 });
@@ -133,27 +156,15 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: '用户名和密码不能为空' });
     }
 
-    // 查找用户
-    const [users] = await pool.execute(
-      'SELECT id, username, email, password_hash, current_points, total_consumed_points, total_recharged_points FROM users WHERE username = ? AND status = "active"',
-      [username]
-    );
-
-    if (users.length === 0) {
-      return res.status(401).json({ error: '用户名或密码错误' });
-    }
-
-    const user = users[0];
-
-    // 验证密码
-    const passwordMatch = await bcrypt.compare(password, user.password_hash);
-    if (!passwordMatch) {
-      return res.status(401).json({ error: '用户名或密码错误' });
-    }
+    // 验证用户
+    const user = await UserService.validateUser(username, password);
+    
+    // 获取用户积分统计
+    const pointsStats = await UserService.getUserPointsStats(user._id);
 
     // 生成JWT令牌
     const token = jwt.sign(
-      { userId: user.id, username: user.username },
+      { userId: user._id, username: user.username },
       process.env.JWT_SECRET || 'default_secret',
       { expiresIn: '7d' }
     );
@@ -162,14 +173,12 @@ app.post('/api/auth/login', async (req, res) => {
       success: true,
       token,
       user: {
-        id: user.id,
+        id: user._id,
         username: user.username,
         email: user.email,
-        points: {
-          current: user.current_points,
-          totalConsumed: user.total_consumed_points,
-          totalRecharged: user.total_recharged_points
-        }
+        points: user.points,
+        pointsStats,
+        lastLoginAt: user.lastLoginAt
       }
     });
   } catch (error) {
@@ -183,22 +192,21 @@ app.post('/api/auth/login', async (req, res) => {
 // 获取用户积分信息
 app.get('/api/points/info', authenticateToken, async (req, res) => {
   try {
-    const [users] = await pool.execute(
-      'SELECT current_points, total_consumed_points, total_recharged_points FROM users WHERE id = ?',
-      [req.user.userId]
-    );
+    const userId = req.user.userId;
+    
+    // 获取用户积分
+    const currentPoints = await UserService.getUserPoints(userId);
+    
+    // 获取积分统计
+    const pointsStats = await UserService.getUserPointsStats(userId);
 
-    if (users.length === 0) {
-      return res.status(404).json({ error: '用户不存在' });
-    }
-
-    const user = users[0];
     res.json({
       success: true,
       points: {
-        current: user.current_points,
-        totalConsumed: user.total_consumed_points,
-        totalRecharged: user.total_recharged_points
+        current: currentPoints,
+        totalEarned: pointsStats.totalEarned,
+        totalConsumed: pointsStats.totalConsumed,
+        recordCount: pointsStats.recordCount
       }
     });
   } catch (error) {
@@ -271,64 +279,23 @@ app.post('/api/points/deduct', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: '扣费积分必须大于0' });
     }
 
-    const connection = await pool.getConnection();
-    await connection.beginTransaction();
+    // 获取当前积分
+    const beforePoints = await UserService.getUserPoints(userId);
 
-    try {
-      // 获取当前积分
-      const [users] = await connection.execute(
-        'SELECT current_points, total_consumed_points FROM users WHERE id = ? FOR UPDATE',
-        [userId]
-      );
+    // 扣除积分
+    const metadata = { noteId };
+    const afterPoints = await UserService.deductPoints(userId, points, actionType, description, metadata);
 
-      if (users.length === 0) {
-        throw new Error('用户不存在');
-      }
-
-      const user = users[0];
-      if (user.current_points < points) {
-        throw new Error('积分不足');
-      }
-
-      const beforePoints = user.current_points;
-      const afterPoints = beforePoints - points;
-
-      // 更新用户积分
-      await connection.execute(
-        'UPDATE users SET current_points = ?, total_consumed_points = ? WHERE id = ?',
-        [afterPoints, user.total_consumed_points + points, userId]
-      );
-
-      // 创建扣费记录
-      const [deductionResult] = await connection.execute(
-        'INSERT INTO points_deduction_records (user_id, points_deducted, action_type, action_description, note_id, before_points, after_points) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [userId, points, actionType, description, noteId, beforePoints, afterPoints]
-      );
-
-      // 创建积分变动日志
-      await connection.execute(
-        'INSERT INTO points_logs (user_id, change_type, points_change, before_points, after_points, reference_id, reference_type, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [userId, 'deduction', -points, beforePoints, afterPoints, deductionResult.insertId, 'deduction', description]
-      );
-
-      await connection.commit();
-
-      res.json({
-        success: true,
-        message: '积分扣费成功',
-        beforePoints,
-        afterPoints,
-        deductedPoints: points
-      });
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
+    res.json({
+      success: true,
+      message: '积分扣费成功',
+      beforePoints,
+      afterPoints,
+      deductedPoints: points
+    });
   } catch (error) {
     console.error('积分扣费失败:', error);
-    if (error.message === '积分不足') {
+    if (error.message === '积分不足' || error.message === '用户不存在') {
       res.status(400).json({ error: error.message });
     } else {
       res.status(500).json({ error: '服务器内部错误' });
@@ -772,34 +739,33 @@ app.get('/health', (req, res) => {
 });
 
 // 启动服务器
-const server = app.listen(PORT, () => {
-  console.log(`服务器运行在端口 ${PORT}`);
-  console.log(`API文档: http://localhost:${PORT}/api`);
-  console.log(`健康检查: http://localhost:${PORT}/health`);
-}).on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`端口 ${PORT} 已被占用`);
-  } else {
-    console.error('服务器启动失败:', err);
-  }
-  process.exit(1);
-});
+startServer();
 
 // 优雅关闭
-process.on('SIGTERM', () => {
-  console.log('收到 SIGTERM 信号，正在关闭服务器...');
-  server.close(() => {
-    console.log('服务器已关闭');
-    process.exit(0);
-  });
-});
+const gracefulShutdown = async (signal) => {
+  console.log(`收到 ${signal} 信号，正在关闭服务器...`);
+  
+  try {
+    // 关闭数据库连接
+    const { disconnectDB } = require('./config/database');
+    await disconnectDB();
+    
+    // 关闭服务器
+    if (global.server) {
+      global.server.close(() => {
+        console.log('服务器已关闭');
+        process.exit(0);
+      });
+    } else {
+      process.exit(0);
+    }
+  } catch (error) {
+    console.error('关闭服务器时出错:', error);
+    process.exit(1);
+  }
+};
 
-process.on('SIGINT', () => {
-  console.log('收到 SIGINT 信号，正在关闭服务器...');
-  server.close(() => {
-    console.log('服务器已关闭');
-    process.exit(0);
-  });
-});
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 module.exports = app;
