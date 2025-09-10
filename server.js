@@ -5,6 +5,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const axios = require('axios');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const PaymentFactory = require('./payment');
 const { connectDB } = require('./config/database');
 const UserService = require('./services/UserService');
@@ -13,6 +15,27 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.SERVER_PORT || 8080;
+
+// 安全中间件
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
+}));
+
+// 限流中间件
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15分钟
+  max: 5, // 限制每个IP 15分钟内最多5次登录/注册尝试
+  message: { error: '请求过于频繁，请稍后再试' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // 中间件
 app.use(cors({
@@ -43,7 +66,7 @@ app.use(cors({
       return callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true
+  credentials: false // 方案B不需要credentials
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -99,7 +122,7 @@ const authenticateToken = (req, res, next) => {
 // ==================== 用户相关API ====================
 
 // 用户注册
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', authLimiter, async (req, res) => {
   try {
     const { username, email, phone, password } = req.body;
 
@@ -148,7 +171,7 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // 用户登录
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
 
@@ -171,9 +194,9 @@ app.post('/api/auth/login', async (req, res) => {
       points: user?.points 
     });
     
-    // 获取用户积分统计
-    const pointsStats = await UserService.getUserPointsStats(user._id);
-    console.log('积分统计获取成功:', pointsStats);
+    // 获取用户积分统计（延迟到dashboard页面再获取以减少登录延迟）
+    const pointsStats = { totalEarned: 0, totalConsumed: 0, recordCount: 0 };
+    console.log('登录成功，积分统计将延迟加载');
 
     // 生成JWT令牌
     const token = jwt.sign(
@@ -215,7 +238,53 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Token验证接口
+// 获取当前用户信息接口 (支持GET和POST)
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
+  try {
+    const user = await UserService.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        points: user.points
+      }
+    });
+  } catch (error) {
+    console.error('获取用户信息失败:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 兼容旧的POST接口
+app.post('/api/auth/me', authenticateToken, async (req, res) => {
+  try {
+    const user = await UserService.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        points: user.points
+      }
+    });
+  } catch (error) {
+    console.error('获取用户信息失败:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 兼容旧的verify接口 (重定向到me)
 app.post('/api/auth/verify', authenticateToken, async (req, res) => {
   try {
     const user = await UserService.findById(req.user.userId);
@@ -629,7 +698,7 @@ app.get('/ext/bridge', (req, res) => {
 });
 
 // 仪表板页面
-app.get('/dashboard', authenticateToken, async (req, res) => {
+app.get('/dashboard', async (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html>
@@ -867,39 +936,96 @@ app.get('/dashboard', authenticateToken, async (req, res) => {
         <script>
             const API_BASE = '/api';
             
+            // API请求封装
+            async function apiRequest(url, options = {}) {
+                const token = localStorage.getItem('token');
+                
+                const defaultOptions = {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': token ? 'Bearer ' + token : ''
+                    }
+                };
+                
+                const mergedOptions = {
+                    ...defaultOptions,
+                    ...options,
+                    headers: {
+                        ...defaultOptions.headers,
+                        ...options.headers
+                    }
+                };
+                
+                try {
+                    const response = await fetch(url, mergedOptions);
+                    
+                    // 处理401错误，自动跳转到登录页
+                    if (response.status === 401) {
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('user');
+                        window.location.href = '/';
+                        return null;
+                    }
+                    
+                    return await response.json();
+                } catch (error) {
+                    console.error('API请求失败:', error);
+                    throw error;
+                }
+            }
+            
             // 检查登录状态
-            function checkAuth() {
+            async function checkAuth() {
                 const token = localStorage.getItem('token');
                 const user = localStorage.getItem('user');
                 
                 if (!token || !user) {
+                    console.log('未找到token或用户信息，跳转到登录页');
                     window.location.href = '/';
                     return;
                 }
                 
-                const userData = JSON.parse(user);
-                document.getElementById('username').textContent = userData.username;
-                document.getElementById('avatar').textContent = userData.username.charAt(0).toUpperCase();
-                
-                // 获取用户积分
-                fetchUserPoints(token);
+                // 验证token有效性
+                try {
+                    const data = await apiRequest(API_BASE + '/auth/me');
+                    
+                    if (data && data.success) {
+                        const userData = data.user;
+                        localStorage.setItem('user', JSON.stringify(userData));
+                        
+                        document.getElementById('username').textContent = userData.username;
+                        document.getElementById('avatar').textContent = userData.username.charAt(0).toUpperCase();
+                        
+                        // 获取用户积分
+                        fetchUserPoints();
+                    } else {
+                        console.log('Token验证失败，跳转到登录页');
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('user');
+                        window.location.href = '/';
+                    }
+                } catch (error) {
+                    console.error('Token验证失败:', error);
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    window.location.href = '/';
+                }
             }
             
             // 获取用户积分
-            async function fetchUserPoints(token) {
+            async function fetchUserPoints() {
                 try {
-                    const response = await fetch(\`\${API_BASE}/points/info\`, {
-                        headers: {
-                            'Authorization': \`Bearer \${token}\`
-                        }
-                    });
+                    const data = await apiRequest(API_BASE + '/points/info');
                     
-                    const data = await response.json();
-                    if (response.ok && data.success) {
+                    if (data && data.success) {
                         document.getElementById('points').textContent = data.points.current;
+                    } else {
+                        console.error('获取积分失败:', data);
+                        document.getElementById('points').textContent = '0';
                     }
                 } catch (error) {
                     console.error('获取积分失败:', error);
+                    document.getElementById('points').textContent = '0';
                 }
             }
             
@@ -1192,7 +1318,7 @@ app.get('/', (req, res) => {
             function showAlert(message, type) {
                 const alert = document.getElementById('alert');
                 alert.textContent = message;
-                alert.className = \`alert \${type}\`;
+                alert.className = 'alert ' + type;
                 alert.style.display = 'block';
             }
             
@@ -1211,7 +1337,7 @@ app.get('/', (req, res) => {
                 btn.innerHTML = '<span class="loading"></span> 登录中...';
                 
                 try {
-                    const response = await fetch(\`\${API_BASE}/auth/login\`, {
+                    const response = await fetch(API_BASE + '/auth/login', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -1251,7 +1377,7 @@ app.get('/', (req, res) => {
                 btn.innerHTML = '<span class="loading"></span> 注册中...';
                 
                 try {
-                    const response = await fetch(\`\${API_BASE}/auth/register\`, {
+                    const response = await fetch(API_BASE + '/auth/register', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -1286,9 +1412,9 @@ app.get('/', (req, res) => {
                 
                 if (token && user) {
                     // 验证token是否有效
-                    fetch(\`\${API_BASE}/auth/verify\`, {
+                    fetch(API_BASE + '/auth/me', {
                         headers: {
-                            'Authorization': \`Bearer \${token}\`
+                            'Authorization': 'Bearer ' + token
                         }
                     })
                     .then(response => response.json())
@@ -1325,7 +1451,14 @@ app.use((error, req, res, next) => {
   console.error('错误堆栈:', error.stack);
   console.error('=================');
   
-  res.status(500).json({ error: '服务器内部错误' });
+  // 生产环境不返回详细错误信息
+  const isProduction = process.env.NODE_ENV === 'production';
+  const errorMessage = isProduction ? '服务器内部错误' : error.message;
+  
+  res.status(500).json({ 
+    error: errorMessage,
+    requestId: req.headers['x-request-id'] || 'unknown'
+  });
 });
 
 // 健康检查 endpoint
@@ -1342,7 +1475,18 @@ app.get('/health', (req, res) => {
 
 // 404处理
 app.use((req, res) => {
-  res.status(404).json({ error: '接口不存在' });
+  console.warn('=== 404请求 ===');
+  console.warn('时间:', new Date().toISOString());
+  console.warn('请求路径:', req.path);
+  console.warn('请求方法:', req.method);
+  console.warn('用户代理:', req.get('User-Agent'));
+  console.warn('===============');
+  
+  res.status(404).json({ 
+    error: '接口不存在',
+    path: req.path,
+    method: req.method
+  });
 });
 
 // 启动服务器

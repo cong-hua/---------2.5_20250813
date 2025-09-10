@@ -11,8 +11,21 @@ class PointsService {
 
   // 获取用户积分汇总统计
   async getUserPointsSummary(userId) {
+    // 验证ObjectId有效性
+    if (!mongoose.isValidObjectId(userId)) {
+      console.warn('无效的UserId:', userId);
+      return {
+        currentBalance: 0,
+        totalEarned: 0,
+        totalConsumed: 0,
+        lastEarn: null,
+        lastConsume: null,
+        recordCount: 0
+      };
+    }
+
     const summary = await PointsRecord.aggregate([
-      { $match: { userId: new mongoose.Types.ObjectId(userId) } },
+      { $match: { userId: new mongoose.Types.ObjectId(String(userId)) } },
       {
         $group: {
           _id: null,
@@ -40,29 +53,54 @@ class PointsService {
 
   // 获取用户积分记录
   async getUserRecords(userId, type = 'all', page = 1, limit = 20) {
-    const skip = (page - 1) * limit;
-    
-    // 构建查询条件
-    const matchQuery = { userId: new mongoose.Types.ObjectId(userId) };
-    if (type !== 'all') {
-      matchQuery.type = type;
-    }
-    
-    const records = await PointsRecord.find(matchQuery)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    const total = await PointsRecord.countDocuments(matchQuery);
-
-    return {
-      records,
-      pagination: {
-        current: page,
-        total: Math.ceil(total / limit),
-        totalItems: total
+    try {
+      // 验证ObjectId有效性
+      if (!mongoose.isValidObjectId(userId)) {
+        console.warn('无效的UserId:', userId);
+        return {
+          records: [],
+          pagination: {
+            current: page,
+            total: 0,
+            totalItems: 0
+          }
+        };
       }
-    };
+
+      const skip = (page - 1) * limit;
+      
+      // 构建查询条件
+      const matchQuery = { userId: new mongoose.Types.ObjectId(String(userId)) };
+      if (type !== 'all') {
+        matchQuery.type = type;
+      }
+      
+      const records = await PointsRecord.find(matchQuery)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit);
+
+      const total = await PointsRecord.countDocuments(matchQuery);
+
+      return {
+        records,
+        pagination: {
+          current: page,
+          total: Math.ceil(total / limit),
+          totalItems: total
+        }
+      };
+    } catch (error) {
+      console.error('获取用户积分记录失败:', error);
+      return {
+        records: [],
+        pagination: {
+          current: page,
+          total: 0,
+          totalItems: 0
+        }
+      };
+    }
   }
 
   // 获取积分排行榜

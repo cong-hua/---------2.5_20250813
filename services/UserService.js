@@ -94,8 +94,14 @@ class UserService {
   // 获取用户积分统计
   async getUserPointsStats(userId) {
     try {
+      // 验证ObjectId有效性
+      if (!mongoose.isValidObjectId(userId)) {
+        console.warn('无效的UserId:', userId);
+        return { totalEarned: 0, totalConsumed: 0, recordCount: 0 };
+      }
+
       const stats = await PointsRecord.aggregate([
-        { $match: { userId: new mongoose.Types.ObjectId(userId) } },
+        { $match: { userId: new mongoose.Types.ObjectId(String(userId)) } },
         {
           $group: {
             _id: null,

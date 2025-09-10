@@ -5,13 +5,13 @@ MongoDB 连接失败: MongooseServerSelectionError: Could not connect to any ser
     at NativeConnection.openUri (/Users/luohuacong/Documents/project/xhs/小红书自动发布插件2.5（调试上线中）/小红书自动发布插件2.5_20250813/node_modules/mongoose/lib/connection.js:791:11)
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
     at async connectDB (/Users/luohuacong/Documents/project/xhs/小红书自动发布插件2.5（调试上线中）/小红书自动发布插件2.5_20250813/config/database.js:13:18)
-    at async startServer (/Users/luohuacong/Documents/project/xhs/小红书自动发布插件2.5（调试上线中）/小红书自动发布插件2.5_20250813/server.js:60:5) {
+    at async startServer (/Users/luohuacong/Documents/project/xhs/小红书自动发布插件2.5（调试上线中）/小红书自动发布插件2.5_20250813/server.js:83:5) {
   reason: TopologyDescription {
     type: 'ReplicaSetNoPrimary',
     servers: Map(3) {
-      'ac-jethtit-shard-00-02.mtaukn9.mongodb.net:27017' => [ServerDescription],
       'ac-jethtit-shard-00-01.mtaukn9.mongodb.net:27017' => [ServerDescription],
-      'ac-jethtit-shard-00-00.mtaukn9.mongodb.net:27017' => [ServerDescription]
+      'ac-jethtit-shard-00-00.mtaukn9.mongodb.net:27017' => [ServerDescription],
+      'ac-jethtit-shard-00-02.mtaukn9.mongodb.net:27017' => [ServerDescription]
     },
     stale: false,
     compatible: true,
@@ -29,14 +29,3 @@ MongoDB 连接失败: MongooseServerSelectionError: Could not connect to any ser
 服务器运行在端口 8080
 API文档: http://localhost:8080/api
 健康检查: http://localhost:8080/health
-用户注册失败: Error: 数据库未连接，请检查MongoDB配置
-    at UserService.checkDBConnection (/Users/luohuacong/Documents/project/xhs/小红书自动发布插件2.5（调试上线中）/小红书自动发布插件2.5_20250813/services/UserService.js:9:13)
-    at UserService.createUser (/Users/luohuacong/Documents/project/xhs/小红书自动发布插件2.5（调试上线中）/小红书自动发布插件2.5_20250813/services/UserService.js:16:12)
-    at /Users/luohuacong/Documents/project/xhs/小红书自动发布插件2.5（调试上线中）/小红书自动发布插件2.5_20250813/server.js:115:36
-    at Layer.handle [as handle_request] (/Users/luohuacong/Documents/project/xhs/小红书自动发布插件2.5（调试上线中）/小红书自动发布插件2.5_20250813/node_modules/express/lib/router/layer.js:95:5)
-    at next (/Users/luohuacong/Documents/project/xhs/小红书自动发布插件2.5（调试上线中）/小红书自动发布插件2.5_20250813/node_modules/express/lib/router/route.js:149:13)
-    at Route.dispatch (/Users/luohuacong/Documents/project/xhs/小红书自动发布插件2.5（调试上线中）/小红书自动发布插件2.5_20250813/node_modules/express/lib/router/route.js:119:3)
-    at Layer.handle [as handle_request] (/Users/luohuacong/Documents/project/xhs/小红书自动发布插件2.5（调试上线中）/小红书自动发布插件2.5_20250813/node_modules/express/lib/router/layer.js:95:5)
-    at /Users/luohuacong/Documents/project/xhs/小红书自动发布插件2.5（调试上线中）/小红书自动发布插件2.5_20250813/node_modules/express/lib/router/index.js:284:15
-    at Function.process_params (/Users/luohuacong/Documents/project/xhs/小红书自动发布插件2.5（调试上线中）/小红书自动发布插件2.5_20250813/node_modules/express/lib/router/index.js:346:12)
-    at next (/Users/luohuacong/Documents/project/xhs/小红书自动发布插件2.5（调试上线中）/小红书自动发布插件2.5_20250813/node_modules/express/lib/router/index.js:280:10)
