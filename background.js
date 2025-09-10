@@ -22,6 +22,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'STOP_PUBLISH':
         await stopPublishing();
         return { success: true };
+      case 'SET_AUTH_TOKEN':
+        await handleSetAuthToken(message.token);
+        return { success: true };
+      case 'GET_AUTH_TOKEN':
+        const token = await getAuthToken();
+        return { token: token };
     }
   };
 
@@ -397,14 +403,15 @@ async function publishNote(noteData) {
         return new Promise((resolve) => {
           setTimeout(() => {
             // 填写标题
-            const titleInput = document.querySelector('.titleInput input');
+            const titleInput = document.querySelector('#web > div > div > div > div > div.body > div.content > div.plugin.title-container > div > div > div > div.d-input-wrapper.d-inline-block.c-input_inner > div > input');
             if (titleInput) {
               titleInput.value = contentData.title;
               titleInput.dispatchEvent(new Event('input', { bubbles: true }));
             }
 
-            // 点击正文编辑器
-            const editor = document.querySelector('#quillEditor > div');
+            // 点击正文编辑器 - 兼容新旧版本
+            const editor = document.querySelector('#web > div > div > div > div > div.body > div.content > div.plugin.editor-container > div > div > div.editor-container > div.editor-content > div > div') ||
+                          document.querySelector('#quillEditor > div');
             if (editor) {
               editor.click();
               editor.focus();
@@ -552,19 +559,30 @@ async function publishNote(noteData) {
                                           setTimeout(() => {
                                             // 获取商品规格
                                             const productSpec = contentData.productSpec;
+                                            const productSpec1 = contentData.productSpec1;
+                                            const productSpec2 = contentData.productSpec2;
                                             
-                                            if (productSpec && productSpec.trim() !== '') {
-                                              console.log('发现商品规格：', productSpec);
+                                            // 调试信息
+                                            console.log('=== Background.js 规格调试 ===');
+                                            console.log('productSpec:', productSpec);
+                                            console.log('productSpec1:', productSpec1);
+                                            console.log('productSpec2:', productSpec2);
+                                            console.log('==============================');
+                                            
+                                            if ((productSpec && productSpec.trim() !== '') || 
+                                                (productSpec1 && productSpec1.trim() !== '') || 
+                                                (productSpec2 && productSpec2.trim() !== '')) {
+                                              console.log('发现商品规格需要设置');
                                               
-                                              // 点击改规格按钮
-                                              const editSpecButton = document.querySelector('#web > div.outarea.publish-c > div > div > div > div.body > div.content > div.media-commodity > div > div > div > div > div > div > div.draggable-wrap > div > div.draggable-good-card-operation > button:nth-child(2) > div > span.d-text.--color-static.--color-current.--size-text-paragraph.d-text-nowrap.d-text-ellipsis.d-text-nowrap');
+                                              // 点击改规格按钮 - 使用更新的选择器
+                                              const editSpecButton = document.querySelector('#web > div > div > div > div > div.body > div.content > div.media-commodity > div > div > div > div > div > div > div.draggable-wrap > div > div.draggable-good-card-operation > button:nth-child(2)');
                                               
                                               if (editSpecButton) {
                                                 console.log('点击规格选择按钮');
                                                 editSpecButton.click();
                                                 
                                                 // 等待规格选择弹窗加载
-                                                setTimeout(() => {
+                                                setTimeout(async () => {
                                                   try {
                                                     // 获取规格区域
                                                     const specContainer = document.querySelector('body > div.d-modal-mask > div > div.d-modal-content > div > div.variant-list');
@@ -605,106 +623,181 @@ async function publishNote(noteData) {
                                                       }
                                                     }
                                                     
-                                                    // 获取所有规格选项
-                                                    let specOptions = specContainer ? specContainer.querySelectorAll('span') : [];
-                                                    console.log(`找到 ${specOptions.length} 个规格选项`);
+                                                    // 获取所有规格选项 (span elements containing radio buttons)
+                                                    const specOptions = specContainer.querySelectorAll('span');
+                                                    console.log(`找到${specOptions.length}个规格选项`);
                                                     
-                                                    // 将完整的选项文本记录下来，方便调试
-                                                    const allOptionsText = Array.from(specOptions).map(opt => opt.textContent.trim()).join(', ');
-                                                    console.log('所有选项:', allOptionsText);
+                                                    // 打印所有可用的规格选项
+                                                    console.log('=== 所有可用规格选项 ===');
+                                                    specOptions.forEach((option, index) => {
+                                                      const optionText = option.textContent.trim();
+                                                      const hasRadio = option.querySelector('.d-radio-simulator');
+                                                      console.log(`选项${index + 1}: "${optionText}" (包含单选框: ${!!hasRadio})`);
+                                                    });
+                                                    console.log('========================');
                                                     
-                                                    // 精确匹配单个规格
-                                                    let specFound = false;
+                                                    // 步骤1：取消所有已选中的规格
+                                                    console.log('步骤1：取消所有已选中的规格');
+                                                    const checkedOptions = specContainer.querySelectorAll('.d-radio-simulator.checked');
+                                                    console.log(`找到${checkedOptions.length}个已选中的规格`);
+                                                    
+                                                    for (const checkedOption of checkedOptions) {
+                                                      console.log('取消已选规格:', checkedOption.closest('span').textContent.trim());
+                                                      checkedOption.click();
+                                                      await new Promise(r => setTimeout(r, 300)); // Small delay for UI update
+                                                    }
+                                                    
+                                                    // 步骤2：选择指定的规格
+                                                    console.log('步骤2：选择指定的规格');
+                                                    let spec1Found = false;
+                                                    let spec2Found = false;
+                                                    let legacySpecFound = false;
                                                     
                                                     // 记录目标规格
-                                                    console.log('正在查找目标规格:', productSpec);
+                                                    if (productSpec1) console.log('正在查找目标规格1:', productSpec1);
+                                                    if (productSpec2) console.log('正在查找目标规格2:', productSpec2);
+                                                    if (productSpec) console.log('正在查找传统规格:', productSpec);
                                                     
-                                                    // 0. 先尝试查找完全匹配的按钮
-                                                    const exactButtons = document.querySelectorAll('div.d-modal-mask button');
-                                                    for (let btn of exactButtons) {
-                                                      if (btn.textContent.trim() === productSpec) {
-                                                        console.log('找到完全匹配的按钮:', btn.textContent.trim());
-                                                        btn.click();
-                                                        specFound = true;
-                                                        break;
+                                                    // 多种匹配策略 - 精确匹配优先
+                                                    const matchStrategies = [
+                                                      // 策略1：精确匹配（最高优先级）
+                                                      (optionText, targetSpec) => optionText === targetSpec,
+                                                      // 策略2：去除空格后精确匹配
+                                                      (optionText, targetSpec) => optionText.replace(/\s+/g, '') === targetSpec.replace(/\s+/g, ''),
+                                                      // 策略3：分词匹配（严格匹配所有词）
+                                                      (optionText, targetSpec) => {
+                                                        const optionWords = optionText.split(/[\s,，、]+/).filter(w => w.length > 0);
+                                                        const targetWords = targetSpec.split(/[\s,，、]+/).filter(w => w.length > 0);
+                                                        return targetWords.every(word => optionWords.includes(word));
+                                                      },
+                                                      // 策略4：包含匹配（最低优先级，只有在没有更好匹配时才使用）
+                                                      (optionText, targetSpec) => {
+                                                        // 只有当选项文本比目标文本长不超过3倍时才进行包含匹配
+                                                        if (optionText.length > targetSpec.length * 3) return false;
+                                                        return optionText.includes(targetSpec);
                                                       }
-                                                    }
+                                                    ];
                                                     
-                                                    if (!specFound) {
-                                                      // 1. 先尝试精确匹配
-                                                      for (let i = 0; i < specOptions.length; i++) {
-                                                        const option = specOptions[i];
-                                                        const optionText = option.textContent.trim();
-                                                        
-                                                        console.log(`规格选项 ${i+1}:`, optionText);
-                                                        
-                                                        // 检查是否为精确匹配
-                                                        if (optionText === productSpec) {
-                                                          console.log('找到精确匹配规格:', optionText);
-                                                          option.click();
-                                                          specFound = true;
-                                                          break;
-                                                        }
-                                                      }
-                                                    }
-                                                    
-                                                    // 2. 如果没有找到精确匹配，尝试在单词边界处匹配
-                                                    if (!specFound) {
-                                                      console.log('尝试匹配单个规格名称');
+                                                    for (let strategyIndex = 0; strategyIndex < matchStrategies.length; strategyIndex++) {
+                                                      const strategy = matchStrategies[strategyIndex];
+                                                      const strategyName = ['精确匹配', '去空格匹配', '分词匹配', '包含匹配'][strategyIndex];
                                                       
-                                                      for (let i = 0; i < specOptions.length; i++) {
-                                                        const option = specOptions[i];
-                                                        const optionText = option.textContent.trim();
-                                                        const words = optionText.split(/[\s,，、]+/); // 使用更多的分隔符
-                                                        
-                                                        if (words.includes(productSpec)) {
-                                                          console.log('在选项中找到单词匹配:', productSpec, '在', optionText);
-                                                          option.click();
-                                                          specFound = true;
-                                                          break;
-                                                        }
-                                                      }
-                                                    }
-                                                    
-                                                    // 3. 尝试部分匹配
-                                                    if (!specFound) {
-                                                      console.log('尝试部分匹配');
+                                                      console.log(`尝试策略${strategyIndex + 1}: ${strategyName}`);
                                                       
-                                                      for (let i = 0; i < specOptions.length; i++) {
-                                                        const option = specOptions[i];
-                                                        const optionText = option.textContent.trim();
+                                                      for (const specOption of specOptions) {
+                                                        const optionText = specOption.textContent.trim();
+                                                        const radioSimulator = specOption.querySelector('.d-radio-simulator');
                                                         
-                                                        if (optionText.includes(productSpec) || productSpec.includes(optionText)) {
-                                                          console.log('找到部分匹配:', optionText, '与', productSpec);
-                                                          option.click();
-                                                          specFound = true;
-                                                          break;
+                                                        // 检查productSpec1
+                                                        if (productSpec1 && !spec1Found && strategy(optionText, productSpec1)) {
+                                                          if (radioSimulator) {
+                                                            console.log(`策略${strategyIndex + 1}找到匹配的规格1: "${optionText}" 匹配 "${productSpec1}"`);
+                                                            radioSimulator.click();
+                                                            spec1Found = true;
+                                                            await new Promise(r => setTimeout(r, 300));
+                                                          } else {
+                                                            // 对于没有单选框的选项，尝试点击整个选项元素
+                                                            console.log(`策略${strategyIndex + 1}找到匹配的规格1（无单选框，尝试点击选项）: "${optionText}" 匹配 "${productSpec1}"`);
+                                                            try {
+                                                              specOption.click();
+                                                              spec1Found = true;
+                                                              await new Promise(r => setTimeout(r, 300));
+                                                            } catch (e) {
+                                                              console.log('点击选项失败，尝试寻找父元素的单选框');
+                                                              // 尝试寻找父元素或兄弟元素中的单选框
+                                                              const parentRadio = specOption.closest('span')?.querySelector('.d-radio-simulator') || 
+                                                                                 specOption.parentElement?.querySelector('.d-radio-simulator');
+                                                              if (parentRadio) {
+                                                                console.log('找到父级单选框，点击它');
+                                                                parentRadio.click();
+                                                                spec1Found = true;
+                                                                await new Promise(r => setTimeout(r, 300));
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                        
+                                                        // 检查productSpec2
+                                                        if (productSpec2 && !spec2Found && strategy(optionText, productSpec2)) {
+                                                          if (radioSimulator) {
+                                                            console.log(`策略${strategyIndex + 1}找到匹配的规格2: "${optionText}" 匹配 "${productSpec2}"`);
+                                                            radioSimulator.click();
+                                                            spec2Found = true;
+                                                            await new Promise(r => setTimeout(r, 300));
+                                                          } else {
+                                                            console.log(`策略${strategyIndex + 1}找到匹配的规格2（无单选框，尝试点击选项）: "${optionText}" 匹配 "${productSpec2}"`);
+                                                            try {
+                                                              specOption.click();
+                                                              spec2Found = true;
+                                                              await new Promise(r => setTimeout(r, 300));
+                                                            } catch (e) {
+                                                              console.log('点击选项失败，尝试寻找父元素的单选框');
+                                                              const parentRadio = specOption.closest('span')?.querySelector('.d-radio-simulator') || 
+                                                                                 specOption.parentElement?.querySelector('.d-radio-simulator');
+                                                              if (parentRadio) {
+                                                                console.log('找到父级单选框，点击它');
+                                                                parentRadio.click();
+                                                                spec2Found = true;
+                                                                await new Promise(r => setTimeout(r, 300));
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                        
+                                                        // 检查传统productSpec（向后兼容）
+                                                        if (productSpec && !legacySpecFound && strategy(optionText, productSpec)) {
+                                                          if (radioSimulator) {
+                                                            console.log(`策略${strategyIndex + 1}找到匹配的传统规格: "${optionText}" 匹配 "${productSpec}"`);
+                                                            radioSimulator.click();
+                                                            legacySpecFound = true;
+                                                            await new Promise(r => setTimeout(r, 300));
+                                                          } else {
+                                                            console.log(`策略${strategyIndex + 1}找到匹配的传统规格（无单选框，尝试点击选项）: "${optionText}" 匹配 "${productSpec}"`);
+                                                            try {
+                                                              specOption.click();
+                                                              legacySpecFound = true;
+                                                              await new Promise(r => setTimeout(r, 300));
+                                                            } catch (e) {
+                                                              console.log('点击选项失败，尝试寻找父元素的单选框');
+                                                              const parentRadio = specOption.closest('span')?.querySelector('.d-radio-simulator') || 
+                                                                                 specOption.parentElement?.querySelector('.d-radio-simulator');
+                                                              if (parentRadio) {
+                                                                console.log('找到父级单选框，点击它');
+                                                                parentRadio.click();
+                                                                legacySpecFound = true;
+                                                                await new Promise(r => setTimeout(r, 300));
+                                                              }
+                                                            }
+                                                          }
                                                         }
                                                       }
-                                                    }
-                                                    
-                                                    // 4. 如果还是没找到，尝试点击第一个选项（兜底方案）
-                                                    if (!specFound && specOptions.length > 0) {
-                                                      console.log('没有找到匹配的规格，选择第一个选项:', specOptions[0].textContent.trim());
-                                                      specOptions[0].click();
-                                                      specFound = true;
-                                                    }
-                                                    
-                                                    // 5. 如果还是没有找到，尝试全局搜索任何span或button
-                                                    if (!specFound) {
-                                                      console.log('尝试搜索任何可能的元素');
-                                                      const allElements = document.querySelectorAll('div.d-modal-mask span, div.d-modal-mask button');
                                                       
-                                                      for (let el of allElements) {
-                                                        const elText = el.textContent.trim();
-                                                        if (elText === productSpec || elText.includes(productSpec) || productSpec.includes(elText)) {
-                                                          console.log('找到可能匹配的元素:', elText);
-                                                          el.click();
-                                                          specFound = true;
+                                                      // 如果所有需要的规格都找到了，就退出策略循环
+                                                      const allSpecsFound = (!productSpec1 || spec1Found) && 
+                                                                           (!productSpec2 || spec2Found) && 
+                                                                           (!productSpec || legacySpecFound || productSpec1 || productSpec2);
+                                                      if (allSpecsFound) {
+                                                        console.log(`策略${strategyIndex + 1}成功，停止尝试其他策略`);
                                                           break;
                                                         }
                                                       }
+                                                    
+                                                    // 检查是否有未找到的规格
+                                                    let hasError = false;
+                                                    if (productSpec1 && !spec1Found) {
+                                                      console.error('未找到规格1:', productSpec1);
+                                                      hasError = true;
                                                     }
+                                                    if (productSpec2 && !spec2Found) {
+                                                      console.error('未找到规格2:', productSpec2);
+                                                      hasError = true;
+                                                    }
+                                                    if (productSpec && !legacySpecFound && !productSpec1 && !productSpec2) {
+                                                      console.error('未找到传统规格:', productSpec);
+                                                      hasError = true;
+                                                    }
+                                                    
+                                                    const specFound = spec1Found || spec2Found || legacySpecFound;
                                                     
                                                     // 等待一下再点击确认按钮
                                                     setTimeout(() => {
@@ -913,7 +1006,9 @@ async function publishNote(noteData) {
           title: noteData.title, 
           body: noteData.body, 
           tags: noteData.tags,
-          productSpec: noteData.productSpec // 添加商品规格
+          productSpec: noteData.productSpec, // 原有商品规格
+          productSpec1: noteData.productSpec1, // 新增商品规格1
+          productSpec2: noteData.productSpec2  // 新增商品规格2
         }, 
         noteData.productId || ''
       ]
@@ -924,6 +1019,14 @@ async function publishNote(noteData) {
     await new Promise(resolve => setTimeout(resolve, 30000));
 
     publishState.currentAction = '发布完成';
+    
+    // 扣除积分（发布一篇笔记消耗1积分）
+    try {
+      await deductPointsForPublish(noteData);
+    } catch (error) {
+      console.error('扣除积分失败:', error);
+      // 积分扣除失败不影响发布流程，只记录日志
+    }
     
     // 向popup发送笔记已发布的消息，包含recordId以便更新飞书状态
     chrome.runtime.sendMessage({
@@ -960,4 +1063,119 @@ async function wait(seconds) {
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
   publishState.waitTime = 0;
+}
+
+// 积分扣费函数
+async function deductPointsForPublish(noteData) {
+  const PUBLISH_COST = 1; // 发布一篇笔记消耗1积分
+  
+  try {
+    // 获取当前积分数据
+    const result = await chrome.storage.local.get(['pointsData']);
+    let pointsData = result.pointsData || {
+      current: 0,
+      totalRecharged: 0,
+      totalConsumed: 0
+    };
+
+    // 检查积分是否足够
+    if (pointsData.current < PUBLISH_COST) {
+      throw new Error(`积分不足，当前积分: ${pointsData.current}，需要: ${PUBLISH_COST}`);
+    }
+
+    // 扣除积分
+    const beforePoints = pointsData.current;
+    pointsData.current -= PUBLISH_COST;
+    pointsData.totalConsumed += PUBLISH_COST;
+
+    // 保存更新后的积分数据
+    await chrome.storage.local.set({ pointsData });
+
+    // 创建扣费记录
+    const deductionRecord = {
+      id: Date.now(),
+      amount: PUBLISH_COST,
+      actionType: 'publish_note',
+      description: `发布笔记: ${noteData.title}`,
+      noteId: noteData.recordId || '',
+      beforePoints,
+      afterPoints: pointsData.current,
+      timestamp: Date.now()
+    };
+
+    // 保存扣费记录
+    const { deductionRecords = [] } = await chrome.storage.local.get(['deductionRecords']);
+    deductionRecords.push(deductionRecord);
+    await chrome.storage.local.set({ deductionRecords });
+
+    // 记录积分变动日志
+    const { pointsLogs = [] } = await chrome.storage.local.get(['pointsLogs']);
+    pointsLogs.push({
+      id: Date.now(),
+      changeType: 'deduction',
+      pointsChange: -PUBLISH_COST,
+      beforePoints,
+      afterPoints: pointsData.current,
+      description: `发布笔记消耗积分: ${noteData.title}`,
+      timestamp: Date.now()
+    });
+    await chrome.storage.local.set({ pointsLogs });
+
+    console.log(`积分扣费成功: 消耗 ${PUBLISH_COST} 积分，剩余 ${pointsData.current} 积分`);
+    
+    // 通知popup更新积分显示
+    chrome.runtime.sendMessage({
+      type: 'POINTS_UPDATED',
+      data: pointsData
+    }).catch(() => {});
+
+  } catch (error) {
+    console.error('积分扣费失败:', error);
+    throw error;
+  }
+}
+
+// ==================== MVP Token管理功能 ====================
+
+// 设置认证token
+async function handleSetAuthToken(token) {
+  try {
+    await chrome.storage.local.set({ authToken: token });
+    console.log('AuthToken已保存');
+    
+    // 通知popup更新登录状态
+    chrome.runtime.sendMessage({
+      type: 'LOGIN_STATUS_CHANGED',
+      data: { isLoggedIn: true }
+    }).catch(() => {});
+  } catch (error) {
+    console.error('保存AuthToken失败:', error);
+  }
+}
+
+// 获取认证token
+async function getAuthToken() {
+  try {
+    const result = await chrome.storage.local.get(['authToken']);
+    return result.authToken || null;
+  } catch (error) {
+    console.error('获取AuthToken失败:', error);
+    return null;
+  }
+}
+
+// 清除认证token
+async function clearAuthToken() {
+  try {
+    await chrome.storage.local.remove(['authToken']);
+    console.log('AuthToken已清除');
+    
+    // 通知popup更新登录状态
+    chrome.runtime.sendMessage({
+      type: 'LOGIN_STATUS_CHANGED',
+      data: { isLoggedIn: false }
+    }).catch(() => {});
+  } catch (error) {
+    console.error('清除AuthToken失败:', error);
+  }
 } 

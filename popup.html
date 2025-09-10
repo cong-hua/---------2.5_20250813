@@ -48,6 +48,101 @@
 
     .header-left {
       font-size: 18px;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .login-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: var(--light-color);
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+    }
+
+    .login-status.logged-out {
+      background: var(--light-color);
+      color: var(--text-color);
+    }
+
+    .login-status.logged-in {
+      background: var(--success-color);
+      color: white;
+    }
+
+    .login-btn {
+      padding: 4px 8px;
+      border: none;
+      border-radius: var(--radius-xs);
+      background: var(--primary-color);
+      color: white;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+
+    .login-btn:hover {
+      background: var(--secondary-color);
+    }
+
+    .user-menu {
+      position: relative;
+      display: none;
+    }
+
+    .user-menu.show {
+      display: block;
+    }
+
+    .user-menu-btn {
+      padding: 4px 8px;
+      border: none;
+      border-radius: var(--radius-xs);
+      background: transparent;
+      color: white;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .user-dropdown {
+      position: absolute;
+      top: 100%;
+      right: 0;
+      background: white;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      box-shadow: 0 4px 12px var(--shadow-color);
+      z-index: 1000;
+      min-width: 120px;
+      display: none;
+    }
+
+    .user-dropdown.show {
+      display: block;
+    }
+
+    .user-dropdown-item {
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 14px;
+      color: var(--text-color);
+      border-bottom: 1px solid var(--border-color);
+      transition: background 0.3s ease;
+    }
+
+    .user-dropdown-item:hover {
+      background: var(--light-color);
+    }
+
+    .user-dropdown-item:last-child {
+      border-bottom: none;
+    }
       font-weight: bold;
       color: var(--primary-color);
       display: flex;
@@ -86,6 +181,39 @@
       width: 16px;
       height: 16px;
       margin-right: 6px;
+    }
+
+    .points-btn {
+      width: auto;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 20px;
+      background: #fff0f6;
+      border: 1px solid #ff2442;
+      color: #ff2442;
+      cursor: pointer;
+      transition: all 0.2s;
+      padding: 0 12px;
+      margin-left: 10px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .points-btn:hover {
+      background: #ff2442;
+      color: white;
+    }
+
+    .points-btn:hover svg {
+      stroke: white;
+    }
+
+    .points-btn svg {
+      width: 16px;
+      height: 16px;
+      margin-right: 4px;
     }
 
     .header-right {
@@ -666,6 +794,311 @@
     button:active {
       transform: translateY(0);
     }
+
+    /* 积分充值弹窗样式 */
+    .points-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 2000;
+      backdrop-filter: blur(3px);
+    }
+
+    .points-modal-content {
+      background: white;
+      width: 90%;
+      max-width: 500px;
+      max-height: 90%;
+      border-radius: var(--radius);
+      overflow-y: auto;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    }
+
+    .points-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px 25px 15px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .points-modal-header h2 {
+      margin: 0;
+      color: var(--primary-color);
+      font-size: 20px;
+    }
+
+    .close-points-modal {
+      cursor: pointer;
+      color: #666;
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: var(--light-color);
+      transition: all 0.2s;
+      font-size: 20px;
+    }
+
+    .close-points-modal:hover {
+      background: var(--secondary-color);
+      color: white;
+    }
+
+    .points-info {
+      padding: 20px 25px;
+      background: #f8f9ff;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 15px;
+    }
+
+    .points-info-item {
+      text-align: center;
+      padding: 15px;
+      background: white;
+      border-radius: var(--radius-sm);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .points-info-item .label {
+      display: block;
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+
+    .points-info-item .value {
+      display: block;
+      font-size: 18px;
+      font-weight: bold;
+      color: var(--primary-color);
+    }
+
+    .recharge-section {
+      padding: 20px 25px;
+    }
+
+    .recharge-section h3 {
+      margin: 0 0 15px 0;
+      color: var(--text-color);
+      font-size: 16px;
+    }
+
+    .preset-amounts {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .amount-btn {
+      padding: 15px;
+      border: 2px solid #e0e0e0;
+      border-radius: var(--radius-sm);
+      background: white;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .amount-btn:hover {
+      border-color: var(--primary-color);
+      background: var(--light-color);
+    }
+
+    .amount-btn.selected {
+      border-color: var(--primary-color);
+      background: var(--primary-color);
+      color: white;
+    }
+
+    .amount-btn small {
+      font-size: 12px;
+      opacity: 0.8;
+    }
+
+    .custom-amount {
+      border-top: 1px solid #e0e0e0;
+      padding-top: 20px;
+    }
+
+    .custom-amount label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+
+    .amount-input-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .amount-input-group input {
+      flex: 1;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: var(--radius-xs);
+      font-size: 16px;
+    }
+
+    .amount-input-group input:focus {
+      border-color: var(--primary-color);
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(255, 36, 66, 0.1);
+    }
+
+    .currency {
+      font-weight: 500;
+      color: var(--text-color);
+    }
+
+    .points-preview {
+      font-size: 14px;
+      color: #666;
+    }
+
+    .points-preview span {
+      font-weight: bold;
+      color: var(--primary-color);
+    }
+
+    .payment-section {
+      padding: 0 25px 20px;
+      border-top: 1px solid #e0e0e0;
+      margin-top: 20px;
+      padding-top: 20px;
+    }
+
+    .payment-section h3 {
+      margin: 0 0 15px 0;
+      color: var(--text-color);
+      font-size: 16px;
+    }
+
+    .payment-methods {
+      display: flex;
+      gap: 15px;
+    }
+
+    .payment-method {
+      flex: 1;
+      cursor: pointer;
+    }
+
+    .payment-method input[type="radio"] {
+      display: none;
+    }
+
+    .payment-option {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 15px;
+      border: 2px solid #e0e0e0;
+      border-radius: var(--radius-sm);
+      background: white;
+      transition: all 0.2s;
+      font-size: 14px;
+    }
+
+    .payment-method input[type="radio"]:checked + .payment-option {
+      border-color: var(--primary-color);
+      background: var(--light-color);
+      color: var(--primary-color);
+    }
+
+    .payment-option:hover {
+      border-color: var(--primary-color);
+    }
+
+    .points-modal-actions {
+      padding: 20px 25px;
+      display: flex;
+      gap: 15px;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    .btn-recharge {
+      flex: 2;
+      background: var(--primary-color);
+      color: white;
+      border: none;
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-recharge:hover {
+      background: var(--secondary-color);
+    }
+
+    .btn-recharge:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    .btn-cancel {
+      flex: 1;
+      background: #f0f0f0;
+      color: #666;
+      border: 1px solid #ddd;
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      font-size: 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-cancel:hover {
+      background: #e0e0e0;
+    }
+
+    .recharge-status {
+      padding: 15px 25px;
+      margin: 0;
+      border-radius: 0;
+      display: none;
+    }
+
+    .recharge-status.success {
+      background-color: #f6ffed;
+      border-top: 1px solid #b7eb8f;
+      color: #52c41a;
+      display: block;
+    }
+
+    .recharge-status.error {
+      background-color: #fff2f0;
+      border-top: 1px solid #ffccc7;
+      color: #ff4d4f;
+      display: block;
+    }
+
+    .recharge-status.loading {
+      background-color: #e6f7ff;
+      border-top: 1px solid #91d5ff;
+      color: #1890ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
   </style>
 </head>
 <body>
@@ -680,8 +1113,26 @@
         </svg>
         配置飞书
       </button>
+      <button class="points-btn" title="积分管理">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M12 6v6l4 2"></path>
+        </svg>
+        <span id="currentPoints">0</span> 积分
+      </button>
     </div>
     <div class="header-right">
+      <div id="loginStatus" class="login-status logged-out">
+        <span id="statusText">未登录</span>
+        <button id="loginBtn" class="login-btn">去登录</button>
+        <div id="userMenu" class="user-menu">
+          <button id="userMenuBtn" class="user-menu-btn">▼</button>
+          <div id="userDropdown" class="user-dropdown">
+            <div class="user-dropdown-item" onclick="openWebsite()">打开网站</div>
+            <div class="user-dropdown-item" onclick="logout()">退出登录</div>
+          </div>
+        </div>
+      </div>
       <button class="help-btn" title="使用说明">?</button>
       <button class="close-btn">✕</button>
     </div>
@@ -713,7 +1164,13 @@
     <div class="main-content">
       <!-- 上方日志面板 -->
       <div class="logs-container">
-        <div class="log-panel" id="logPanel"></div>
+        <div class="log-panel-container">
+          <div class="log-panel" id="logPanel"></div>
+          <div class="log-controls">
+            <button id="downloadLogs" class="btn btn-sm btn-outline-secondary">下载日志</button>
+            <button id="clearLogs" class="btn btn-sm btn-outline-danger">清空日志</button>
+          </div>
+        </div>
       </div>
 
       <!-- 下方笔记区域 -->
@@ -820,12 +1277,91 @@
       </div>
 
       <div class="help-footer">
-        <p>开发者：涛涛</p>
-        <p>版本：v3.1</p>
+        <p>开发者：七肆</p>
+        <p>版本：v2.5</p>
       </div>
     </div>
   </div>
+
+  <!-- 积分充值弹窗 -->
+  <div id="pointsModal" class="points-modal" style="display: none;">
+    <div class="points-modal-content">
+      <div class="points-modal-header">
+        <h2>积分充值</h2>
+        <span class="close-points-modal">&times;</span>
+      </div>
+      
+      <div class="points-info">
+        <div class="points-info-item">
+          <span class="label">当前积分：</span>
+          <span class="value" id="modalCurrentPoints">0</span>
+        </div>
+        <div class="points-info-item">
+          <span class="label">累计充值：</span>
+          <span class="value" id="modalTotalRecharged">0</span>
+        </div>
+        <div class="points-info-item">
+          <span class="label">累计消耗：</span>
+          <span class="value" id="modalTotalConsumed">0</span>
+        </div>
+      </div>
+
+      <div class="recharge-section">
+        <h3>充值金额 (1元 = 10积分)</h3>
+        <div class="preset-amounts">
+          <button class="amount-btn" data-amount="10">10元<br><small>100积分</small></button>
+          <button class="amount-btn" data-amount="20">20元<br><small>200积分</small></button>
+          <button class="amount-btn" data-amount="50">50元<br><small>500积分</small></button>
+          <button class="amount-btn" data-amount="100">100元<br><small>1000积分</small></button>
+        </div>
+        
+        <div class="custom-amount">
+          <label for="customAmount">自定义金额：</label>
+          <div class="amount-input-group">
+            <input type="number" id="customAmount" min="10" max="1000" step="1" placeholder="输入金额">
+            <span class="currency">元</span>
+          </div>
+          <div class="points-preview">
+            预计获得积分：<span id="previewPoints">0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="payment-section">
+        <h3>支付方式</h3>
+        <div class="payment-methods">
+          <label class="payment-method">
+            <input type="radio" name="paymentMethod" value="wechat" checked>
+            <div class="payment-option">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="#1aad19">
+                <path d="M8.5 6.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM12 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM18.5 10.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
+              </svg>
+              微信支付
+            </div>
+          </label>
+          <label class="payment-method">
+            <input type="radio" name="paymentMethod" value="alipay">
+            <div class="payment-option">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="#1677ff">
+                <circle cx="12" cy="12" r="10"/>
+              </svg>
+              支付宝支付
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="points-modal-actions">
+        <button id="confirmRecharge" class="btn-recharge">立即充值</button>
+        <button id="cancelRecharge" class="btn-cancel">取消</button>
+      </div>
+
+      <div id="rechargeStatus" class="recharge-status"></div>
+    </div>
+  </div>
+
   <script src="feishu_client.js"></script>
+  <script src="points_manager.js"></script>
   <script src="popup.js"></script>
 
   <!-- 笔记面板模板 -->

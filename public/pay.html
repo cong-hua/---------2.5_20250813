@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>充值中心 - 小红书插件</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .logo {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        .header h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .header p {
+            color: #6c757d;
+            font-size: 16px;
+        }
+
+        .development-notice {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .development-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .development-notice h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .development-notice p {
+            color: #6c757d;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .packages {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .packages h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .package-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .package-item {
+            border: 2px solid #e9ecef;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .package-item:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
+        }
+
+        .package-item.selected {
+            border-color: #667eea;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .package-amount {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .package-price {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+
+        .package-points {
+            font-size: 16px;
+            margin-top: 5px;
+            opacity: 0.9;
+        }
+
+        .payment-methods {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .payment-methods h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .payment-options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .payment-option {
+            border: 2px solid #e9ecef;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .payment-option:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+        }
+
+        .payment-option.selected {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .payment-icon {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .payment-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .actions {
+            text-align: center;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 14px 32px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 5px;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: #f8f9fa;
+            color: #6c757d;
+            border: 2px solid #e9ecef;
+        }
+
+        .btn-secondary:hover {
+            background: #e9ecef;
+            color: #495057;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .current-balance {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .balance-label {
+            color: #6c757d;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+
+        .balance-amount {
+            font-size: 32px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #f5c6cb;
+            display: none;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #c3e6cb;
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .package-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .payment-options {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">💰</div>
+            <h1>充值中心</h1>
+            <p>为您的账户充值积分，享受更多功能</p>
+        </div>
+
+        <div id="error" class="error"></div>
+        <div id="success" class="success"></div>
+
+        <div class="current-balance">
+            <div class="balance-label">当前积分</div>
+            <div class="balance-amount" id="currentBalance">加载中...</div>
+        </div>
+
+        <div class="development-notice">
+            <div class="development-icon">🚧</div>
+            <h2>支付功能开发中</h2>
+            <p>我们正在努力完善支付功能，敬请期待！目前您可以选择以下套餐，但暂时无法完成支付。</p>
+            <p>如有急需，请联系客服手动处理。</p>
+        </div>
+
+        <div class="packages">
+            <h2>选择套餐</h2>
+            <div class="package-grid">
+                <div class="package-item" data-package="starter">
+                    <div class="package-amount">¥10</div>
+                    <div class="package-price">10元</div>
+                    <div class="package-points">100积分</div>
+                </div>
+                <div class="package-item" data-package="basic">
+                    <div class="package-amount">¥30</div>
+                    <div class="package-price">30元</div>
+                    <div class="package-points">300积分</div>
+                </div>
+                <div class="package-item" data-package="standard">
+                    <div class="package-amount">¥50</div>
+                    <div class="package-price">50元</div>
+                    <div class="package-points">500积分</div>
+                </div>
+                <div class="package-item" data-package="premium">
+                    <div class="package-amount">¥100</div>
+                    <div class="package-price">100元</div>
+                    <div class="package-points">1000积分</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="payment-methods">
+            <h2>支付方式</h2>
+            <div class="payment-options">
+                <div class="payment-option" data-method="wechat">
+                    <div class="payment-icon">💚</div>
+                    <div class="payment-name">微信支付</div>
+                </div>
+                <div class="payment-option" data-method="alipay">
+                    <div class="payment-icon">💙</div>
+                    <div class="payment-name">支付宝</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>正在处理支付...</p>
+            </div>
+            <button class="btn btn-primary" id="payBtn" onclick="processPayment()">立即支付</button>
+            <button class="btn btn-secondary" onclick="window.location.href='user.html'">返回用户中心</button>
+        </div>
+    </div>
+
+    <script>
+        let selectedPackage = null;
+        let selectedPaymentMethod = null;
+        let token = localStorage.getItem('token');
+
+        // 页面加载时初始化
+        window.addEventListener('load', function() {
+            if (!token) {
+                window.location.href = 'login.html';
+                return;
+            }
+            
+            loadCurrentBalance();
+            initPackageSelection();
+            initPaymentMethodSelection();
+        });
+
+        // 加载当前积分
+        async function loadCurrentBalance() {
+            try {
+                const response = await fetch('/api/points', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        document.getElementById('currentBalance').textContent = data.points.current;
+                    }
+                }
+            } catch (error) {
+                console.error('加载积分失败:', error);
+            }
+        }
+
+        // 初始化套餐选择
+        function initPackageSelection() {
+            const packageItems = document.querySelectorAll('.package-item');
+            packageItems.forEach(item => {
+                item.addEventListener('click', function() {
+                    // 移除其他选中状态
+                    packageItems.forEach(p => p.classList.remove('selected'));
+                    // 添加选中状态
+                    this.classList.add('selected');
+                    selectedPackage = this.dataset.package;
+                });
+            });
+        }
+
+        // 初始化支付方式选择
+        function initPaymentMethodSelection() {
+            const paymentOptions = document.querySelectorAll('.payment-option');
+            paymentOptions.forEach(option => {
+                option.addEventListener('click', function() {
+                    // 移除其他选中状态
+                    paymentOptions.forEach(p => p.classList.remove('selected'));
+                    // 添加选中状态
+                    this.classList.add('selected');
+                    selectedPaymentMethod = this.dataset.method;
+                });
+            });
+        }
+
+        // 处理支付
+        async function processPayment() {
+            if (!selectedPackage) {
+                showError('请选择充值套餐');
+                return;
+            }
+
+            if (!selectedPaymentMethod) {
+                showError('请选择支付方式');
+                return;
+            }
+
+            // 显示加载状态
+            document.getElementById('loading').classList.add('show');
+            document.getElementById('payBtn').disabled = true;
+
+            try {
+                // 调用支付接口（占位）
+                const response = await fetch('/api/pay/checkout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        package: selectedPackage,
+                        paymentMethod: selectedPaymentMethod
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    // 显示开发中消息
+                    showSuccess('支付功能开发中，敬请期待！');
+                } else {
+                    showError(data.message || '支付失败');
+                }
+            } catch (error) {
+                console.error('支付请求失败:', error);
+                showError('网络错误，请稍后重试');
+            } finally {
+                // 隐藏加载状态
+                document.getElementById('loading').classList.remove('show');
+                document.getElementById('payBtn').disabled = false;
+            }
+        }
+
+        // 显示错误消息
+        function showError(message) {
+            const errorElement = document.getElementById('error');
+            errorElement.textContent = message;
+            errorElement.style.display = 'block';
+            
+            setTimeout(() => {
+                errorElement.style.display = 'none';
+            }, 5000);
+        }
+
+        // 显示成功消息
+        function showSuccess(message) {
+            const successElement = document.getElementById('success');
+            successElement.textContent = message;
+            successElement.style.display = 'block';
+            
+            setTimeout(() => {
+                successElement.style.display = 'none';
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

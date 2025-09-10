@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "小红书发布助手",
-  "version": "2.0",
-  "description": "自动发布小红书内容",
+  "name": "小红书笔记自动发布助手2.5",
+  "version": "2.5",
+  "description": "自动发布小红书笔记插件",
   "permissions": [
     "scripting",
     "tabs",
@@ -14,14 +14,25 @@
     "downloads.open"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "<all_urls>",
+    "https://your-domain.zeabur.app/*"
   ],
   "web_accessible_resources": [{
     "resources": ["popup.html"],
     "matches": ["<all_urls>"]
   }],
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
   },
   "background": {
     "service_worker": "background.js",
@@ -32,6 +43,10 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"]
+    },
+    {
+      "matches": ["https://your-domain.zeabur.app/ext/bridge*"],
+      "js": ["site_bridge.js"]
     }
   ]
 } 

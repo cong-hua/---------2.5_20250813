@@ -391,6 +391,16 @@ function addLog(message, type = 'info', details = '') {
 // 等待页面加载完成
 document.addEventListener('DOMContentLoaded', async () => {
   try {
+    // 绑定日志控制按钮事件
+    const downloadLogsBtn = document.getElementById('downloadLogs');
+    if (downloadLogsBtn) {
+      downloadLogsBtn.addEventListener('click', downloadLogs);
+    }
+    
+    const clearLogsBtn = document.getElementById('clearLogs');
+    if (clearLogsBtn) {
+      clearLogsBtn.addEventListener('click', clearLogs);
+    }
     // 初始化UI
     setupEventListeners();
     
@@ -400,6 +410,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // 设置飞书更新日志增强
     setupFeishuUpdateListener();
+    
+    // 初始化MVP功能
+    await initMVPFeatures();
     
     // 恢复飞书配置
     await restoreFeishuConfig();
@@ -569,9 +582,128 @@ function createImagePreview(imageData, index, panel, noteIndex) {
   wrapper.dataset.index = index;
   wrapper.draggable = true;
   
+  // 添加删除按钮样式
+  wrapper.style.position = 'relative';
+  
+  // 创建删除按钮
+  const deleteBtn = document.createElement('div');
+  deleteBtn.className = 'image-delete-btn';
+  deleteBtn.innerHTML = '×';
+  deleteBtn.style.position = 'absolute';
+  deleteBtn.style.top = '5px';
+  deleteBtn.style.right = '5px';
+  deleteBtn.style.width = '20px';
+  deleteBtn.style.height = '20px';
+  deleteBtn.style.borderRadius = '50%';
+  deleteBtn.style.background = 'rgba(255, 0, 0, 0.7)';
+  deleteBtn.style.color = 'white';
+  deleteBtn.style.textAlign = 'center';
+  deleteBtn.style.lineHeight = '18px';
+  deleteBtn.style.cursor = 'pointer';
+  deleteBtn.style.zIndex = '10';
+  deleteBtn.style.fontSize = '16px';
+  deleteBtn.style.fontWeight = 'bold';
+  
+  // 图片加载中的提示
+  const loadingIndicator = document.createElement('div');
+  loadingIndicator.className = 'image-loading';
+  loadingIndicator.textContent = '加载中...';
+  loadingIndicator.style.position = 'absolute';
+  loadingIndicator.style.top = '50%';
+  loadingIndicator.style.left = '50%';
+  loadingIndicator.style.transform = 'translate(-50%, -50%)';
+  loadingIndicator.style.color = 'white';
+  loadingIndicator.style.background = 'rgba(0, 0, 0, 0.5)';
+  loadingIndicator.style.padding = '5px 10px';
+  loadingIndicator.style.borderRadius = '3px';
+  loadingIndicator.style.zIndex = '5';
+  
+  wrapper.appendChild(loadingIndicator);
+  
   const img = document.createElement('img');
-  img.src = imageData.dataUrl;
+  img.style.maxWidth = '100%';
+  img.style.height = 'auto';
+  img.style.display = 'block';
+  
+  // 显示图片 - 处理各种可能的图片数据格式
+  let src = '';
+  try {
+    if (typeof imageData.dataUrl === 'string') {
+      // 直接使用字符串URL
+      src = imageData.dataUrl;
+    } else if (imageData.dataUrl && imageData.dataUrl.blob instanceof Blob) {
+      // Blob对象，创建URL
+      src = URL.createObjectURL(imageData.dataUrl.blob);
+    } else if (imageData.dataUrl && imageData.dataUrl.url) {
+      // 包含URL属性的对象
+      src = imageData.dataUrl.url;
+    } else if (notes[noteIndex].images && notes[noteIndex].images[index]) {
+      // 从笔记的images数组获取
+      const noteImage = notes[noteIndex].images[index];
+      if (noteImage instanceof Blob) {
+        src = URL.createObjectURL(noteImage);
+      } else if (noteImage && noteImage.blob instanceof Blob) {
+        src = URL.createObjectURL(noteImage.blob);
+      } else if (noteImage && noteImage.url) {
+        src = noteImage.url;
+      }
+    } else if (notes[noteIndex].imageUrls && notes[noteIndex].imageUrls[index]) {
+      // 从笔记的imageUrls获取
+      const imgData = notes[noteIndex].imageUrls[index];
+      if (typeof imgData === 'string') {
+        src = imgData;
+      } else if (imgData && imgData.blob instanceof Blob) {
+        src = URL.createObjectURL(imgData.blob);
+      } else if (imgData && imgData.url) {
+        src = imgData.url;
+      }
+    }
+    
+    if (!src) {
+      loadingIndicator.textContent = '无法加载图片';
+      loadingIndicator.style.background = 'rgba(255, 0, 0, 0.5)';
+    } else {
+      img.src = src;
+    }
+  } catch (error) {
+    console.error('创建图片预览时出错:', error);
+    loadingIndicator.textContent = '加载图片出错';
+    loadingIndicator.style.background = 'rgba(255, 0, 0, 0.5)';
+  }
+  
+  // 图片加载完成后移除加载提示
+  img.onload = () => {
+    loadingIndicator.style.display = 'none';
+  };
+  
+  // 图片加载失败处理
+  img.onerror = () => {
+    loadingIndicator.textContent = '图片加载失败';
+    loadingIndicator.style.background = 'rgba(255, 0, 0, 0.5)';
+  };
+  
   wrapper.appendChild(img);
+  wrapper.appendChild(deleteBtn);
+  
+  // 如果有文件名，显示文件名
+  if (imageData.name) {
+    const nameLabel = document.createElement('span');
+    nameLabel.className = 'image-filename';
+    nameLabel.textContent = imageData.name;
+    nameLabel.style.position = 'absolute';
+    nameLabel.style.bottom = '0';
+    nameLabel.style.left = '0';
+    nameLabel.style.right = '0';
+    nameLabel.style.fontSize = '10px';
+    nameLabel.style.background = 'rgba(0,0,0,0.6)';
+    nameLabel.style.color = 'white';
+    nameLabel.style.padding = '3px';
+    nameLabel.style.textOverflow = 'ellipsis';
+    nameLabel.style.overflow = 'hidden';
+    nameLabel.style.whiteSpace = 'nowrap';
+    nameLabel.style.textAlign = 'center';
+    wrapper.appendChild(nameLabel);
+  }
   
   // 增加拖拽排序功能
   wrapper.addEventListener('dragstart', e => {
@@ -614,15 +746,10 @@ function createImagePreview(imageData, index, panel, noteIndex) {
     updateNoteImageIndices(panel, noteIndex);
   });
   
-  // 点击图片右上角的删除按钮
-  wrapper.addEventListener('click', e => {
-    // 计算点击位置是否在右上角
-    const rect = wrapper.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+  // 点击删除按钮删除图片
+  deleteBtn.addEventListener('click', e => {
+    e.stopPropagation(); // 阻止事件冒泡
     
-    // 右上角区域定义为一个20x20的区域
-    if (x > rect.width - 30 && y < 30) {
       // 删除图片
       wrapper.remove();
       
@@ -635,7 +762,6 @@ function createImagePreview(imageData, index, panel, noteIndex) {
       
       addLog(`已删除图片 #${index + 1}`, 'info');
       saveState();
-    }
   });
   
   return wrapper;
@@ -869,6 +995,26 @@ style.textContent = `
     line-height: 1.5 !important; // 增加行高
     padding: 10px !important; // 增加内边距
     white-space: pre-wrap !important; // 保留换行和空格
+    overflow-y: auto !important; // 添加滚动条
+  }
+  
+  .log-panel-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  
+  .log-controls {
+    display: flex;
+    justify-content: flex-end;
+    padding: 5px 10px;
+    background-color: #f5f5f5;
+    border-top: 1px solid #ddd;
+  }
+  
+  .log-controls button {
+    margin-left: 8px;
+    font-size: 12px;
   }
 
   .log-item {
@@ -915,8 +1061,21 @@ async function publishNote(noteData, index) {
 
     // 检查并记录商品规格
     const productSpec = noteData.productSpec || '';
+    const productSpec1 = noteData.productSpec1 || '';
+    const productSpec2 = noteData.productSpec2 || '';
+    
     if (productSpec) {
       addLog(`笔记${index + 1}的商品规格是: ${productSpec}`);
+    }
+    if (productSpec1) {
+      addLog(`笔记${index + 1}的商品规格1是: ${productSpec1}`);
+    }
+    if (productSpec2) {
+      addLog(`笔记${index + 1}的商品规格2是: ${productSpec2}`);
+    }
+    
+    if (!productSpec && !productSpec1 && !productSpec2) {
+      addLog(`笔记${index + 1}未设置商品规格`);
     }
 
     // 获取当前标签页
@@ -964,22 +1123,288 @@ async function publishNote(noteData, index) {
     addLog('等待页面切换...');
     await new Promise(resolve => setTimeout(resolve, 5000));
 
+    // 准备图片数据 - 这里是优化点：在实际需要上传时才将Blob转换为base64
+    addLog('准备图片数据...');
+    const imageDataArray = [];
+    
+    // 调试日志
+    console.log('图片数据类型:', typeof noteData.imageUrls);
+    console.log('图片键数量:', Object.keys(noteData.imageUrls || {}).length);
+    
+    // 手动转换Blob为base64的通用函数
+    const blobToBase64Manual = async (blob) => {
+      try {
+        // 读取Blob为ArrayBuffer
+        const arrayBuffer = await blob.arrayBuffer();
+        
+        // 将ArrayBuffer转换为二进制字符串
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        
+        // 转换为base64
+        const base64 = btoa(binary);
+        
+        // 添加MIME类型前缀
+        const mimeType = blob.type || 'image/jpeg';
+        return `data:${mimeType};base64,${base64}`;
+      } catch (e) {
+        console.error('手动转换Blob为base64失败:', e);
+        return null;
+      }
+    };
+    
+    // 标准方法转换Blob为base64
+    const blobToBase64Standard = (blob) => {
+      return new Promise((resolve, reject) => {
+        if (!(blob instanceof Blob)) {
+          return reject(new Error('输入不是有效的Blob对象'));
+        }
+        
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = (e) => {
+          console.error('FileReader失败:', e);
+          reject(e);
+        };
+        reader.readAsDataURL(blob);
+      });
+    };
+    
+    // 从URL获取图片为base64
+    const urlToBase64 = async (url) => {
+      try {
+        // 如果已经是base64格式，直接返回
+        if (url.startsWith('data:')) return url;
+        
+        // 下载图片
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`获取图片失败: ${response.status}`);
+        
+        const blob = await response.blob();
+        
+        // 尝试两种方法转换
+        try {
+          return await blobToBase64Standard(blob);
+        } catch (e) {
+          console.warn('标准方法转换失败，尝试手动方法:', e);
+          return await blobToBase64Manual(blob);
+        }
+      } catch (e) {
+        console.error('URL转base64失败:', e);
+        return null;
+      }
+    };
+    
+    // 根据imageUrls类型进行不同处理
+    if (noteData.imageUrls) {
+      const keys = Object.keys(noteData.imageUrls);
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        const imageData = noteData.imageUrls[key];
+        console.log(`处理第${i+1}张图片(${key}):`, typeof imageData);
+        
+        try {
+          let base64Data = null;
+          
+          // 判断类型并转换
+          if (typeof imageData === 'string') {
+            if (imageData.startsWith('data:')) {
+              // 如果已经是base64，直接使用
+              console.log(`第${i+1}张图片已是base64格式，直接使用`);
+              base64Data = imageData;
+            } else if (imageData.startsWith('http') || imageData.startsWith('blob:')) {
+              // URL，需要下载并转换
+              console.log(`第${i+1}张图片是URL，尝试下载并转换`);
+              base64Data = await urlToBase64(imageData);
+            }
+          } else if (imageData && imageData.blob instanceof Blob) {
+            // 对象中包含blob属性
+            console.log(`第${i+1}张图片是Blob对象，进行转换`);
+            try {
+              base64Data = await blobToBase64Standard(imageData.blob);
+            } catch (e) {
+              console.warn('标准方法转换失败，尝试手动方法:', e);
+              base64Data = await blobToBase64Manual(imageData.blob);
+            }
+          } else if (imageData && imageData.url) {
+            // 对象中包含url属性
+            console.log(`第${i+1}张图片有URL属性:`, imageData.url);
+            base64Data = await urlToBase64(imageData.url);
+          } else if (noteData.images && noteData.images[key]) {
+            // 尝试从images数组获取
+            const img = noteData.images[key];
+            if (img instanceof Blob) {
+              console.log(`第${i+1}张图片从images[${key}]获取Blob`);
+              try {
+                base64Data = await blobToBase64Standard(img);
+              } catch (e) {
+                console.warn('标准方法转换失败，尝试手动方法:', e);
+                base64Data = await blobToBase64Manual(img);
+              }
+            } else if (img && img.blob instanceof Blob) {
+              console.log(`第${i+1}张图片从images[${key}].blob获取Blob`);
+              try {
+                base64Data = await blobToBase64Standard(img.blob);
+              } catch (e) {
+                console.warn('标准方法转换失败，尝试手动方法:', e);
+                base64Data = await blobToBase64Manual(img.blob);
+              }
+            }
+          }
+          
+          // 验证并添加转换结果
+          if (base64Data && typeof base64Data === 'string' && base64Data.startsWith('data:')) {
+            imageDataArray.push(base64Data);
+            console.log(`第${i+1}张图片转换成功，长度:`, base64Data.length);
+            addLog(`第${i+1}张图片准备完成，大小: ${Math.round(base64Data.length/1024)}KB`);
+          } else {
+            console.error(`第${i+1}张图片转换失败，结果:`, base64Data);
+            addLog(`第${i+1}张图片转换失败`, 'error');
+          }
+        } catch (processError) {
+          console.error(`处理第${i+1}张图片时出错:`, processError);
+          addLog(`处理第${i+1}张图片时出错: ${processError.message}`, 'error');
+        }
+      }
+    }
+    
+    // 输出转换后的图片数量
+    console.log(`转换后的图片数量: ${imageDataArray.length}`);
+    addLog(`准备完成，共有 ${imageDataArray.length} 张图片可上传`);
+    
+    // 如果没有有效的图片，报错
+    if (imageDataArray.length === 0) {
+      throw new Error('没有有效的图片可以上传');
+    }
+    
+    // 辅助函数：将Blob转换为base64
+    function blobToBase64(blob) {
+      return new Promise((resolve, reject) => {
+        if (!(blob instanceof Blob)) {
+          return reject(new Error('输入不是有效的Blob对象'));
+        }
+        
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
     // 5. 点击上传图片并上传已选择的图片
     addLog('开始上传已选择的图片');
-    await chrome.scripting.executeScript({
+    
+    // 首先获取页面上传元素结构，确保选择器正确
+    const pageStructure = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      function: (imageDataArray) => {
-        return new Promise((resolve) => {
+      function: () => {
+        // 检查页面结构
+        const structure = {
+          uploadInput: null,
+          uploadWrapperExists: false,
+          alternatives: []
+        };
+        
+        // 检查常规上传输入框
           const uploadInput = document.querySelector('#web > div.outarea.upload-c > div > div > div.upload-content > div.upload-wrapper > div > input');
           if (uploadInput) {
+          structure.uploadInput = {
+            type: uploadInput.type,
+            accept: uploadInput.accept,
+            multiple: uploadInput.multiple
+          };
+        }
+        
+        // 检查上传包装元素
+        const uploadWrapper = document.querySelector('#web > div.outarea.upload-c > div > div > div.upload-content > div.upload-wrapper');
+        structure.uploadWrapperExists = !!uploadWrapper;
+        
+        // 查找替代上传元素
+        const allInputs = Array.from(document.querySelectorAll('input[type="file"]'));
+        structure.alternatives = allInputs.map(input => {
+          const parentClasses = input.parentElement ? input.parentElement.className : '';
+          return {
+            id: input.id,
+            className: input.className,
+            parentClasses,
+            accept: input.accept,
+            multiple: input.multiple
+          };
+        });
+        
+        // 检查上传容器
+        const containers = Array.from(document.querySelectorAll('div.upload-wrapper'));
+        structure.containers = containers.map(c => ({
+          className: c.className,
+          children: c.childElementCount,
+          hasFileInput: !!c.querySelector('input[type="file"]')
+        }));
+        
+        return structure;
+      }
+    });
+    
+    console.log("页面上传元素结构:", pageStructure[0].result);
+    addLog(`检测到上传元素: ${pageStructure[0].result.uploadInput ? '是' : '否'}`);
+    
+    // 尝试两种上传方法，增加成功率
+    let uploadSuccess = false;
+    
+    // 方法1: 通过脚本直接操作input元素
+    if (!uploadSuccess) {
+      addLog('尝试上传方法1...');
+      const uploadResult1 = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        function: (imageDataArray) => {
+          return new Promise((resolve) => {
+            console.log('在页面中处理图片，数量:', imageDataArray.length);
+            
+            // 查找所有可能的文件上传输入框
+            const possibleInputs = [
+              document.querySelector('#web > div.outarea.upload-c > div > div > div.upload-content > div.upload-wrapper > div > input'),
+              ...Array.from(document.querySelectorAll('input[type="file"]'))
+            ].filter(Boolean);
+            
+            console.log('找到可能的上传输入框:', possibleInputs.length);
+            
+            if (possibleInputs.length === 0) {
+              console.error('未找到任何上传输入框');
+              resolve({success: false, error: '未找到上传输入框'});
+              return;
+            }
+            
+            const uploadInput = possibleInputs[0];
+            console.log('使用上传输入框:', uploadInput);
+            
+            try {
             // 创建 DataTransfer 对象
             const dataTransfer = new DataTransfer();
             
             // 将 base64 数据转换为 File 对象
+              let validFiles = 0;
+              
             imageDataArray.forEach((imageData, index) => {
+                try {
+                  console.log(`处理第${index+1}张图片，前20个字符:`, imageData.substring(0, 20));
+                  
+                  // 确保是有效的base64数据
+                  if (!imageData || typeof imageData !== 'string' || !imageData.startsWith('data:')) {
+                    console.error(`第${index+1}张图片不是有效的base64字符串`);
+                    return;
+                  }
+                  
+                  const parts = imageData.split(',');
+                  if (parts.length !== 2) {
+                    console.error(`第${index+1}张图片格式不正确`);
+                    return;
+                  }
+                  
               // 从 base64 创建 Blob
-              const byteString = atob(imageData.split(',')[1]);
-              const mimeString = imageData.split(',')[0].split(':')[1].split(';')[0];
+                  const byteString = atob(parts[1]);
+                  const mimeString = parts[0].split(':')[1].split(';')[0];
               const ab = new ArrayBuffer(byteString.length);
               const ia = new Uint8Array(ab);
               for (let i = 0; i < byteString.length; i++) {
@@ -990,40 +1415,576 @@ async function publishNote(noteData, index) {
               // 创建 File 对象
               const file = new File([blob], `image${index + 1}.jpg`, { type: mimeString });
               dataTransfer.items.add(file);
-            });
+                  validFiles++;
+                  
+                  console.log(`第${index+1}张图片处理完成，大小:`, file.size);
+                } catch (error) {
+                  console.error(`处理第${index+1}张图片出错:`, error);
+                }
+              });
+              
+              console.log('处理后的有效文件数量:', validFiles);
+              console.log('DataTransfer文件数量:', dataTransfer.files.length);
+              
+              if (dataTransfer.files.length === 0) {
+                console.error('没有有效的图片文件可以上传');
+                resolve({success: false, error: '没有有效的图片文件'});
+                return;
+              }
 
             // 设置文件到上传输入框
             uploadInput.files = dataTransfer.files;
+              console.log('已设置文件到输入框，触发change事件');
             uploadInput.dispatchEvent(new Event('change', { bubbles: true }));
-            resolve(true);
+              
+              // 检查上传后的状态
+              setTimeout(() => {
+                const uploadedImages = document.querySelectorAll('.image-uploader-item');
+                const uploadedCount = uploadedImages.length;
+                console.log('已上传图片数量:', uploadedCount);
+                
+                // 分析上传状态
+                const allDataItems = document.querySelectorAll('.image-uploader-item');
+                const itemsInfo = Array.from(allDataItems).map(item => ({
+                  className: item.className,
+                  hasImage: !!item.querySelector('img'),
+                  hasProgress: !!item.querySelector('.progress')
+                }));
+                
+                console.log('上传项目详情:', itemsInfo);
+                
+                resolve({
+                  success: uploadedCount > 0,
+                  uploadedCount,
+                  itemsInfo
+                });
+              }, 3000);
+            } catch (error) {
+              console.error('上传过程中出错:', error);
+              resolve({success: false, error: error.toString()});
+            }
+          });
+        },
+        args: [imageDataArray]
+      });
+      
+      console.log("上传方法1结果:", uploadResult1[0].result);
+      
+      if (uploadResult1[0].result.success) {
+        uploadSuccess = true;
+        addLog(`方法1上传成功，已上传 ${uploadResult1[0].result.uploadedCount} 张图片`);
           } else {
-            resolve(false);
+        addLog(`方法1上传失败: ${uploadResult1[0].result.error || '未知错误'}`);
+      }
+    }
+    
+    // 方法2: 通过触发点击上传按钮的方式
+    if (!uploadSuccess) {
+      addLog('尝试上传方法2...');
+      
+      // 先准备好文件对象
+      const prepareFilesResult = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        function: (imageDataArray) => {
+          return new Promise((resolve) => {
+            try {
+              window.__preparedFiles = [];
+              let validFiles = 0;
+              
+              // 将 base64 数据转换为 File 对象
+              imageDataArray.forEach((imageData, index) => {
+                try {
+                  if (!imageData || typeof imageData !== 'string' || !imageData.startsWith('data:')) {
+                    return;
+                  }
+                  
+                  const parts = imageData.split(',');
+                  if (parts.length !== 2) {
+                    return;
+                  }
+                  
+                  // 从 base64 创建 Blob
+                  const byteString = atob(parts[1]);
+                  const mimeString = parts[0].split(':')[1].split(';')[0];
+                  const ab = new ArrayBuffer(byteString.length);
+                  const ia = new Uint8Array(ab);
+                  for (let i = 0; i < byteString.length; i++) {
+                    ia[i] = byteString.charCodeAt(i);
+                  }
+                  const blob = new Blob([ab], { type: mimeString });
+                  
+                  // 创建 File 对象
+                  const file = new File([blob], `image${index + 1}.jpg`, { type: mimeString });
+                  window.__preparedFiles.push(file);
+                  validFiles++;
+                } catch (error) {
+                  console.error(`处理图片出错:`, error);
+                }
+              });
+              
+              resolve({
+                success: validFiles > 0,
+                filesCount: validFiles
+              });
+            } catch (error) {
+              resolve({success: false, error: error.toString()});
           }
         });
       },
-      args: [Object.values(noteData.imageUrls)] // 使用保存的 base64 数据
-    });
+        args: [imageDataArray]
+      });
+      
+      console.log("准备文件结果:", prepareFilesResult[0].result);
+      
+      if (prepareFilesResult[0].result.success) {
+        // 模拟点击上传按钮并使用准备好的文件
+        const uploadResult2 = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          function: () => {
+            return new Promise((resolve) => {
+              try {
+                // 先找到所有可能的上传入口
+                const uploadButtons = [
+                  ...document.querySelectorAll('.upload-wrapper'),
+                  ...document.querySelectorAll('[class*="upload"]'),
+                  ...document.querySelectorAll('[class*="Upload"]')
+                ];
+                
+                console.log('找到可能的上传入口:', uploadButtons.length);
+                
+                if (uploadButtons.length === 0) {
+                  resolve({success: false, error: '未找到上传入口'});
+                  return;
+                }
+                
+                // 劫持原生FileReader以劫持文件选择
+                const originalAddEventListener = EventTarget.prototype.addEventListener;
+                
+                EventTarget.prototype.addEventListener = function(type, listener, options) {
+                  if (type === 'change' && this.type === 'file') {
+                    // 这是文件输入的change监听器
+                    const originalListener = listener;
+                    
+                    const newListener = function(event) {
+                      // 如果有准备好的文件，使用它们
+                      if (window.__preparedFiles && window.__preparedFiles.length > 0) {
+                        console.log('劫持文件选择，使用准备好的文件');
+                        
+                        // 创建自定义事件
+                        const customEvent = new Event('change', { bubbles: true });
+                        
+                        // 创建自定义文件列表
+                        const dataTransfer = new DataTransfer();
+                        window.__preparedFiles.forEach(file => {
+                          dataTransfer.items.add(file);
+                        });
+                        
+                        // 设置自定义文件列表
+                        Object.defineProperty(this, 'files', {
+                          get: function() {
+                            return dataTransfer.files;
+                          }
+                        });
+                        
+                        // 调用原始监听器
+                        return originalListener.call(this, customEvent);
+                      }
+                      
+                      // 否则使用原始事件
+                      return originalListener.call(this, event);
+                    };
+                    
+                    return originalAddEventListener.call(this, type, newListener, options);
+                  }
+                  
+                  // 对于其他事件类型，使用原始方法
+                  return originalAddEventListener.call(this, type, listener, options);
+                };
+                
+                // 点击第一个上传入口
+                console.log('点击上传入口');
+                uploadButtons[0].click();
+                
+                // 恢复原始方法
+                setTimeout(() => {
+                  EventTarget.prototype.addEventListener = originalAddEventListener;
+                }, 5000);
+                
+                // 检查结果
+                setTimeout(() => {
+                  const uploadedImages = document.querySelectorAll('.image-uploader-item');
+                  const uploadedCount = uploadedImages.length;
+                  console.log('已上传图片数量:', uploadedCount);
+                  
+                  resolve({
+                    success: uploadedCount > 0,
+                    uploadedCount: uploadedCount
+                  });
+                }, 5000);
+              } catch (error) {
+                console.error('上传过程中出错:', error);
+                resolve({success: false, error: error.toString()});
+              }
+            });
+          }
+        });
+        
+        console.log("上传方法2结果:", uploadResult2[0].result);
+        
+        if (uploadResult2[0].result.success) {
+          uploadSuccess = true;
+          addLog(`方法2上传成功，已上传 ${uploadResult2[0].result.uploadedCount} 张图片`);
+        } else {
+          addLog(`方法2上传失败: ${uploadResult2[0].result.error || '未知错误'}`);
+        }
+      }
+    }
+    
+    // 检查最终上传结果
+    if (!uploadSuccess) {
+      // 尝试模拟拖放操作
+      addLog('尝试最后的拖放上传方法...');
+      const dragDropResult = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        function: () => {
+          return new Promise((resolve) => {
+            try {
+              // 检查是否有准备好的文件
+              if (!window.__preparedFiles || window.__preparedFiles.length === 0) {
+                resolve({success: false, error: '没有准备好的文件'});
+                return;
+              }
+              
+              // 查找拖放区域
+              const dropZones = [
+                document.querySelector('.upload-wrapper'),
+                document.querySelector('[class*="upload-area"]'),
+                document.querySelector('[class*="dropzone"]')
+              ].filter(Boolean);
+              
+              if (dropZones.length === 0) {
+                resolve({success: false, error: '未找到拖放区域'});
+                return;
+              }
+              
+              const dropZone = dropZones[0];
+              console.log('找到拖放区域:', dropZone);
+              
+              // 创建拖放事件
+              const dragEnterEvent = new DragEvent('dragenter', {
+                bubbles: true,
+                cancelable: true,
+                dataTransfer: new DataTransfer()
+              });
+              
+              const dragOverEvent = new DragEvent('dragover', {
+                bubbles: true,
+                cancelable: true,
+                dataTransfer: new DataTransfer()
+              });
+              
+              // 创建带有文件的dataTransfer
+              const dropDataTransfer = new DataTransfer();
+              window.__preparedFiles.forEach(file => {
+                dropDataTransfer.items.add(file);
+              });
+              
+              const dropEvent = new DragEvent('drop', {
+                bubbles: true,
+                cancelable: true,
+                dataTransfer: dropDataTransfer
+              });
+              
+              // 执行拖放事件序列
+              dropZone.dispatchEvent(dragEnterEvent);
+              dropZone.dispatchEvent(dragOverEvent);
+              dropZone.dispatchEvent(dropEvent);
+              
+              // 检查结果
+              setTimeout(() => {
+                const uploadedImages = document.querySelectorAll('.image-uploader-item');
+                const uploadedCount = uploadedImages.length;
+                console.log('拖放后已上传图片数量:', uploadedCount);
+                
+                resolve({
+                  success: uploadedCount > 0,
+                  uploadedCount: uploadedCount
+                });
+              }, 3000);
+            } catch (error) {
+              console.error('拖放上传过程中出错:', error);
+              resolve({success: false, error: error.toString()});
+            }
+          });
+        }
+      });
+      
+      console.log("拖放上传结果:", dragDropResult[0].result);
+      
+      if (dragDropResult[0].result.success) {
+        uploadSuccess = true;
+        addLog(`拖放上传成功，已上传 ${dragDropResult[0].result.uploadedCount} 张图片`);
+      } else {
+        addLog(`拖放上传失败: ${dragDropResult[0].result.error || '未知错误'}`);
+      }
+    }
+    
+    // 如果拖放上传也失败，尝试使用更强力的方法
+    if (!uploadSuccess) {
+      addLog('尝试最强力的上传方法...');
+      
+      // 让页面重新聚焦
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        function: () => {
+          window.focus();
+        }
+      });
+      
+      // 强力注入方法：直接注入文件到页面DOM
+      const powerfulUploadResult = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        function: () => {
+          return new Promise((resolve) => {
+            try {
+              // 确保已准备好文件
+              if (!window.__preparedFiles || window.__preparedFiles.length === 0) {
+                resolve({success: false, error: '没有准备好的文件'});
+                return;
+              }
+              
+              console.log('执行强力上传方法，准备好的文件数量:', window.__preparedFiles.length);
+              
+              // 匹配所有可能的上传点的选择器
+              const possibleUploadSelectors = [
+                'input[type="file"]',
+                '[class*="upload"] input[type="file"]',
+                '.upload-wrapper input',
+                '.image-uploader input',
+                '#file-upload',
+                '.upload-button input'
+              ];
+              
+              // 找到所有文件输入元素
+              let allInputs = [];
+              possibleUploadSelectors.forEach(selector => {
+                const inputs = document.querySelectorAll(selector);
+                allInputs = [...allInputs, ...Array.from(inputs)];
+              });
+              
+              console.log('找到的文件输入元素数量:', allInputs.length);
+              
+              if (allInputs.length === 0) {
+                // 尝试创建新的上传输入元素
+                console.log('未找到上传输入，尝试创建新元素');
+                
+                // 找到上传区域
+                const uploadAreas = document.querySelectorAll('.upload-wrapper, [class*="upload-area"], [class*="dropzone"]');
+                if (uploadAreas.length === 0) {
+                  resolve({success: false, error: '未找到上传区域且无法创建输入元素'});
+                  return;
+                }
+                
+                // 创建新的文件输入
+                const newInput = document.createElement('input');
+                newInput.type = 'file';
+                newInput.multiple = true;
+                newInput.accept = 'image/*';
+                newInput.style.position = 'absolute';
+                newInput.style.top = '-1000px'; // 隐藏元素但保持功能
+                
+                // 添加到上传区域
+                uploadAreas[0].appendChild(newInput);
+                allInputs.push(newInput);
+                console.log('已创建新的上传输入元素');
+              }
+              
+              // 直接修改所有输入元素的文件
+              const successfulInputs = [];
+              
+              allInputs.forEach((input, idx) => {
+                try {
+                  // 创建自定义文件列表
+                  const dataTransfer = new DataTransfer();
+                  window.__preparedFiles.forEach(file => {
+                    dataTransfer.items.add(file);
+                  });
+                  
+                  // 直接设置文件
+                  input.files = dataTransfer.files;
+                  console.log(`已设置文件到输入元素 #${idx}，尝试触发事件`);
+                  
+                  // 触发change事件
+                  const event = new Event('change', { bubbles: true });
+                  input.dispatchEvent(event);
+                  
+                  // 触发用户输入事件
+                  const inputEvent = new Event('input', { bubbles: true });
+                  input.dispatchEvent(inputEvent);
+                  
+                  successfulInputs.push(idx);
+                } catch (e) {
+                  console.error(`为输入元素 #${idx} 设置文件失败:`, e);
+                }
+              });
+              
+              // 如果还是没有上传成功，尝试模拟用户点击
+              if (successfulInputs.length === 0) {
+                // 找到所有上传按钮
+                const uploadButtons = document.querySelectorAll('[class*="upload"], .upload-button, button:contains("上传")');
+                console.log('找到可能的上传按钮:', uploadButtons.length);
+                
+                if (uploadButtons.length > 0) {
+                  // 模拟点击第一个上传按钮
+                  uploadButtons[0].click();
+                  console.log('已模拟点击上传按钮');
+                }
+              }
+              
+              // 延迟检查上传结果
+              setTimeout(() => {
+                const uploadedImages = document.querySelectorAll('.image-uploader-item, [class*="uploadedItem"], .uploaded-image');
+                const uploadedCount = uploadedImages.length;
+                console.log('已上传图片数量:', uploadedCount);
+                
+                resolve({
+                  success: uploadedCount > 0,
+                  uploadedCount: uploadedCount,
+                  successfulInputs
+                });
+              }, 5000);
+            } catch (error) {
+              console.error('强力上传过程中出错:', error);
+              resolve({success: false, error: error.toString()});
+            }
+          });
+        }
+      });
+      
+      console.log("强力上传方法结果:", powerfulUploadResult[0].result);
+      
+      if (powerfulUploadResult[0].result.success) {
+        uploadSuccess = true;
+        addLog(`强力上传成功，已上传 ${powerfulUploadResult[0].result.uploadedCount} 张图片`);
+      } else {
+        addLog(`强力上传失败: ${powerfulUploadResult[0].result.error || '未知错误'}`);
+      }
+    }
+    
+    // 如果所有方法都失败，尝试获取更多页面信息用于诊断
+    if (!uploadSuccess) {
+      addLog('所有上传方法都失败，获取页面信息用于诊断', 'error');
+      
+      // 截取页面截图以帮助诊断
+      try {
+        addLog('尝试截取页面截图...');
+        const screenshotResult = await chrome.tabs.captureVisibleTab();
+        console.log('截图获取成功，长度:', screenshotResult.length);
+        // 显示页面截图，帮助诊断
+        const debugImg = document.createElement('img');
+        debugImg.src = screenshotResult;
+        debugImg.style.maxWidth = '300px';
+        debugImg.style.border = '2px solid red';
+        debugImg.style.margin = '10px 0';
+        
+        // 添加到日志区域
+        const logArea = document.getElementById('log');
+        if (logArea) {
+          const imgContainer = document.createElement('div');
+          imgContainer.innerHTML = '<strong>页面截图:</strong>';
+          imgContainer.appendChild(debugImg);
+          logArea.appendChild(imgContainer);
+        }
+        addLog('页面截图已添加到日志区域');
+      } catch (screenshotError) {
+        console.error('截图失败:', screenshotError);
+        addLog('截图失败: ' + screenshotError.message, 'error');
+      }
+      
+      const pageInfo = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        function: () => {
+          const info = {
+            url: window.location.href,
+            title: document.title,
+            bodyContent: document.body.innerHTML.substring(0, 1000),
+            uploadElements: []
+          };
+          
+          // 查找所有可能的上传相关元素
+          const elements = document.querySelectorAll('[class*="upload"],[class*="Upload"],[class*="image"],[class*="Image"]');
+          info.uploadElements = Array.from(elements).slice(0, 10).map(el => ({
+            tagName: el.tagName,
+            className: el.className,
+            id: el.id,
+            innerHTML: el.innerHTML.substring(0, 100)
+          }));
+          
+          return info;
+        }
+      });
+      
+      console.log("页面诊断信息:", pageInfo[0].result);
+      addLog(`页面诊断已完成，请检查控制台日志`, 'info');
+      
+      // 抛出具体的错误
+      throw new Error('上传图片失败，所有上传方法都失败，请检查控制台日志');
+    }
+    
+    // 添加手动上传提示
+    addLog('自动上传失败，请尝试手动操作', 'warning');
+    
+    // 在日志区域添加手动指导
+    const logArea = document.getElementById('log');
+    if (logArea) {
+      const manualDiv = document.createElement('div');
+      manualDiv.innerHTML = `
+        <div style="border:2px solid #ff4d4f; padding:10px; margin:10px 0; background:#fff2f0;">
+          <h3 style="color:#ff4d4f; margin-top:0;">自动上传失败，请尝试手动上传图片</h3>
+          <ol style="padding-left:20px;">
+            <li>请在小红书页面中点击"上传图片"按钮</li>
+            <li>选择你想上传的图片</li>
+            <li>上传完成后，插件会继续自动填写标题和内容</li>
+          </ol>
+        </div>
+      `;
+      logArea.appendChild(manualDiv);
+    }
 
     // 等待图片上传完成
     addLog('等待图片上传完成...');
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    await new Promise(resolve => setTimeout(resolve, 8000)); // 延长等待时间
 
     // 6. 填写笔记内容
     addLog('开始填写内容');
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      function: (contentData, productId, productSpec) => {
-        return new Promise((resolve) => {
-          setTimeout(() => {
+      function: async (contentData, productId, productSpec, productSpec1, productSpec2) => {
+        return new Promise(async (resolve) => {
+          // 调试：显示接收到的参数
+          console.log('=== 规格选择调试信息 ===');
+          console.log('contentData:', contentData);
+          console.log('productId:', productId);
+          console.log('productSpec:', productSpec);
+          console.log('productSpec1:', productSpec1);
+          console.log('productSpec2:', productSpec2);
+          console.log('productSpec1 类型:', typeof productSpec1);
+          console.log('productSpec2 类型:', typeof productSpec2);
+          console.log('productSpec1 是否为空:', !productSpec1);
+          console.log('productSpec2 是否为空:', !productSpec2);
+          console.log('========================');
+          
+          setTimeout(async () => {
             // 填写标题
-            const titleInput = document.querySelector('.titleInput input');
+            const titleInput = document.querySelector('#web > div > div > div > div > div.body > div.content > div.plugin.title-container > div > div > div > div.d-input-wrapper.d-inline-block.c-input_inner > div > input');
             if (titleInput) {
               titleInput.value = contentData.title;
               titleInput.dispatchEvent(new Event('input', { bubbles: true }));
             }
 
-            // 点击正文编辑器
-            const editor = document.querySelector('#quillEditor > div');
+            // 点击正文编辑器 - 兼容新旧版本
+            const editor = document.querySelector('#web > div > div > div > div > div.body > div.content > div.plugin.editor-container > div > div > div.editor-container > div.editor-content > div > div') ||
+                          document.querySelector('#quillEditor > div');
             if (editor) {
               editor.click();
               editor.focus();
@@ -1152,8 +2113,324 @@ async function publishNote(noteData, index) {
                                 const firstResult = document.querySelector('.productSelectItem');
                                 if (firstResult) {
                                   firstResult.click();
-                                }
+                                  
+                                  // 等待商品添加成功并点击修改规格按钮
+                                  setTimeout(async () => {
+                                    console.log('寻找修改规格按钮...');
+                                    
+                                    // 等待一下确保商品卡片加载完成
+                                    console.log('等待商品卡片加载完成...');
+                                    await new Promise(r => setTimeout(r, 2000));
+                                    
+                                    // 再次检查商品是否已经添加成功
+                                    let retryCount = 0;
+                                    const maxRetries = 5;
+                                    
+                                    while (retryCount < maxRetries) {
+                                      const commodityExists = document.querySelector('.media-commodity');
+                                      if (commodityExists) {
+                                        console.log('商品卡片已加载');
+                                        break;
+                                      }
+                                      console.log(`等待商品卡片加载... (${retryCount + 1}/${maxRetries})`);
+                                      await new Promise(r => setTimeout(r, 1000));
+                                      retryCount++;
+                                    }
+                                    
+                                    // 查找修改规格按钮
+                                    let modifySpecBtn = null;
+                                    
+                                    // 使用正确的按钮选择器
+                                    console.log('开始查找修改规格按钮...');
+                                    
+                                    // 首先检查商品卡片是否存在
+                                    const commodityCard = document.querySelector('.media-commodity');
+                                    console.log('商品卡片是否存在:', commodityCard ? '是' : '否');
+                                    
+                                    // 检查操作按钮容器是否存在
+                                    const operationContainer = document.querySelector('.draggable-good-card-operation');
+                                    console.log('操作按钮容器是否存在:', operationContainer ? '是' : '否');
+                                    
+                                    if (operationContainer) {
+                                      const allButtons = operationContainer.querySelectorAll('button');
+                                      console.log('操作容器中的按钮数量:', allButtons.length);
+                                      allButtons.forEach((btn, index) => {
+                                        console.log(`按钮${index + 1}文本:`, btn.textContent.trim());
+                                      });
+                                    }
+                                    
+                                    // 尝试完整选择器
+                                    modifySpecBtn = document.querySelector('#web > div > div > div > div > div.body > div.content > div.media-commodity > div > div > div > div > div > div > div.draggable-wrap > div > div.draggable-good-card-operation > button:nth-child(2)');
+                                    console.log('完整选择器结果:', modifySpecBtn ? '找到' : '未找到');
+                                    
+                                    if (!modifySpecBtn) {
+                                      // 备用选择器
+                                      modifySpecBtn = document.querySelector('.draggable-good-card-operation button:nth-child(2)');
+                                      console.log('备用选择器结果:', modifySpecBtn ? '找到' : '未找到');
+                                    }
+                                    
+                                    if (!modifySpecBtn && operationContainer) {
+                                      // 尝试通过文本查找
+                                      const allButtons = operationContainer.querySelectorAll('button');
+                                      for (const btn of allButtons) {
+                                        const btnText = btn.textContent.trim();
+                                        if (btnText.includes('改规格') || btnText.includes('修改规格') || btnText.includes('规格')) {
+                                          modifySpecBtn = btn;
+                                          console.log('通过文本找到按钮:', btnText);
+                                          break;
+                                        }
+                                      }
+                                    }
+                                    
+                                    if (modifySpecBtn) {
+                                      console.log('最终找到修改规格按钮，按钮文本:', modifySpecBtn.textContent.trim());
+                                    } else {
+                                      console.error('未能找到修改规格按钮');
+                                    }
+                                    
+                                    // 调试：检查条件判断
+                                    console.log('=== 条件判断调试 ===');
+                                    console.log('modifySpecBtn 存在:', !!modifySpecBtn);
+                                    console.log('productSpec1 值:', productSpec1);
+                                    console.log('productSpec2 值:', productSpec2);
+                                    console.log('productSpec1 || productSpec2:', !!(productSpec1 || productSpec2));
+                                    console.log('最终判断结果:', !!(modifySpecBtn && (productSpec1 || productSpec2)));
+                                    console.log('==================');
+                                    
+                                    if (modifySpecBtn && (productSpec1 || productSpec2)) {
+                                      console.log('找到修改规格按钮，准备点击');
+                                      console.log('按钮元素:', modifySpecBtn);
+                                      console.log('按钮是否可见:', modifySpecBtn.offsetParent !== null);
+                                      console.log('按钮是否被禁用:', modifySpecBtn.disabled);
+                                      
+                                      // 尝试多种点击方式
+                                      try {
+                                        // 方式1：直接点击
+                                        console.log('尝试直接点击按钮');
+                                        modifySpecBtn.click();
+                                        
+                                        // 方式2：触发鼠标事件
+                                        setTimeout(() => {
+                                          console.log('尝试触发鼠标事件');
+                                          const clickEvent = new MouseEvent('click', {
+                                            bubbles: true,
+                                            cancelable: true,
+                                            view: window
+                                          });
+                                          modifySpecBtn.dispatchEvent(clickEvent);
+                                        }, 100);
+                                        
+                                        // 方式3：聚焦后按回车
+                                        setTimeout(() => {
+                                          console.log('尝试聚焦后按回车');
+                                          modifySpecBtn.focus();
+                                          const enterEvent = new KeyboardEvent('keydown', {
+                                            key: 'Enter',
+                                            code: 'Enter',
+                                            keyCode: 13,
+                                            which: 13,
+                                            bubbles: true
+                                          });
+                                          modifySpecBtn.dispatchEvent(enterEvent);
+                                        }, 200);
+                                        
+                                        console.log('按钮点击操作已执行');
+                                      } catch (error) {
+                                        console.error('点击按钮时出错:', error);
+                                      }
+                                      
+                                      // 等待规格选择弹窗出现
+                                      setTimeout(async () => {
+                                        console.log('等待规格选择弹窗出现...');
+                                        
+                                        // 等待弹窗出现，最多重试10次
+                                        let skuModal = null;
+                                        let modalRetryCount = 0;
+                                        const maxModalRetries = 10;
+                                        
+                                        while (modalRetryCount < maxModalRetries && !skuModal) {
+                                          // 检查是否有规格选择弹窗
+                                          skuModal = document.querySelector('body > div.d-modal-mask > div > div.d-modal-content');
+                                          
+                                          // 如果没有找到，尝试其他选择器
+                                          if (!skuModal) {
+                                            skuModal = document.querySelector('.d-modal-mask .d-modal-content');
+                                          }
+                                          
+                                          if (!skuModal) {
+                                            skuModal = document.querySelector('.d-modal-mask');
+                                          }
+                                          
+                                          if (!skuModal) {
+                                            console.log(`等待弹窗出现... (${modalRetryCount + 1}/${maxModalRetries})`);
+                                            await new Promise(r => setTimeout(r, 500));
+                                            modalRetryCount++;
+                                          } else {
+                                            console.log('找到规格选择弹窗');
+                                            break;
+                                          }
+                                        }
+                                        
+                                        if (!skuModal) {
+                                          console.error('等待超时，未找到规格选择弹窗');
+                                        }
+                                    
+                                    if (skuModal) {
+                                      console.log('发现规格选择弹窗');
+                                      
+                                      // 处理规格选择
+                                      console.log('开始处理规格选择...');
+                                      
+                                      // 查找规格列表容器
+                                      const variantList = skuModal.querySelector('.variant-list');
+                                      if (!variantList) {
+                                        console.error('未找到规格列表容器 .variant-list');
                                 resolve(true);
+                                        return;
+                                      }
+                                      
+                                      // 获取所有规格选项
+                                      const specOptions = variantList.querySelectorAll('span');
+                                      console.log(`找到${specOptions.length}个规格选项`);
+                                      
+                                      // 步骤1：取消所有已选中的规格
+                                      console.log('步骤1：取消所有已选中的规格');
+                                      const checkedOptions = variantList.querySelectorAll('.d-radio-simulator.checked');
+                                      console.log(`找到${checkedOptions.length}个已选中的规格`);
+                                      
+                                      for (const checkedOption of checkedOptions) {
+                                        console.log('取消已选规格:', checkedOption.closest('span').textContent.trim());
+                                        checkedOption.click();
+                                        await new Promise(r => setTimeout(r, 300));
+                                      }
+                                      
+                                      // 步骤2：选择指定的规格
+                                      console.log('步骤2：选择指定的规格');
+                                      let spec1Found = false;
+                                      let spec2Found = false;
+                                      
+                                      // 遍历所有规格选项
+                                      for (const specOption of specOptions) {
+                                        const optionText = specOption.textContent.trim();
+                                        const radioSimulator = specOption.querySelector('.d-radio-simulator');
+                                        
+                                        if (!radioSimulator) continue;
+                                        
+                                        // 检查是否匹配规格1
+                                        if (productSpec1 && optionText === productSpec1) {
+                                          console.log('找到匹配的规格1:', optionText);
+                                          radioSimulator.click();
+                                          spec1Found = true;
+                                          await new Promise(r => setTimeout(r, 300));
+                                        }
+                                        
+                                        // 检查是否匹配规格2
+                                        if (productSpec2 && optionText === productSpec2) {
+                                          console.log('找到匹配的规格2:', optionText);
+                                          radioSimulator.click();
+                                          spec2Found = true;
+                                          await new Promise(r => setTimeout(r, 300));
+                                        }
+                                      }
+                                      
+                                      // 检查是否有未找到的规格
+                                      if (productSpec1 && !spec1Found) {
+                                        console.error('无法找到匹配的规格1:', productSpec1);
+                                        window.specSelectionErrors = window.specSelectionErrors || [];
+                                        window.specSelectionErrors.push({
+                                          time: new Date().toISOString(),
+                                          noteTitle: contentData.title,
+                                          error: `无法找到匹配的规格1: ${productSpec1}`,
+                                          specOptions: Array.from(specOptions).map(opt => opt.textContent.trim())
+                                        });
+                                      }
+                                      
+                                      if (productSpec2 && !spec2Found) {
+                                        console.error('无法找到匹配的规格2:', productSpec2);
+                                        window.specSelectionErrors = window.specSelectionErrors || [];
+                                        window.specSelectionErrors.push({
+                                          time: new Date().toISOString(),
+                                          noteTitle: contentData.title,
+                                          error: `无法找到匹配的规格2: ${productSpec2}`,
+                                          specOptions: Array.from(specOptions).map(opt => opt.textContent.trim())
+                                        });
+                                      }
+                                      
+                                      // 检查是否有规格选择错误
+                                      const hasError = window.specSelectionErrors && 
+                                                       window.specSelectionErrors.some(err => 
+                                                         err.noteTitle === contentData.title);
+                                                         
+                                      if (hasError) {
+                                        console.error('存在规格选择错误，取消发布');
+                                        
+                                        // 尝试关闭弹窗
+                                        const cancelBtn = skuModal.querySelector('.cancel-btn');
+                                        if (cancelBtn) {
+                                          cancelBtn.click();
+                                        }
+                                        
+                                        // 返回错误，将中断发布流程
+                                        resolve({
+                                          success: false, 
+                                          error: '规格选择失败，请检查规格设置',
+                                          skipPublish: true
+                                        });
+                                        return;
+                                      }
+                                      
+                                      // 点击确定按钮
+                                      setTimeout(async () => {
+                                        // 查找确定按钮
+                                        let confirmBtn = null;
+                                        
+                                        // 通过文本内容查找确定按钮
+                                        const allButtons = skuModal.querySelectorAll('button');
+                                        for (const btn of allButtons) {
+                                          const btnText = btn.textContent || btn.innerText || '';
+                                          if (btnText.includes('确定') || btnText.includes('确认') || btnText.includes('完成') || btnText.includes('保存')) {
+                                            confirmBtn = btn;
+                                            console.log('找到确定按钮:', btnText);
+                                            break;
+                                          }
+                                        }
+                                        if (confirmBtn) {
+                                          console.log('点击确定按钮');
+                                          confirmBtn.click();
+                                        } else {
+                                          console.log('未找到确定按钮');
+                                        }
+                                        resolve(true);
+                                        }, 1000);
+                                      } else {
+                                        console.log('未发现规格选择弹窗，商品可能没有规格选项');
+                                        resolve(true);
+                                      }
+                                    }, 2000);
+                                  } else {
+                                    if (!modifySpecBtn) {
+                                      console.log('未找到修改规格按钮，跳过规格选择');
+                                    } else if (!productSpec1 && !productSpec2) {
+                                      console.log('没有设置规格值，跳过规格选择');
+                                    } else {
+                                      console.log('未知原因，跳过规格选择');
+                                    }
+                                    if (!modifySpecBtn && (productSpec1 || productSpec2)) {
+                                      // 记录错误
+                                      window.specSelectionErrors = window.specSelectionErrors || [];
+                                      window.specSelectionErrors.push({
+                                        time: new Date().toISOString(),
+                                        noteTitle: contentData.title,
+                                        error: '未找到修改规格按钮，无法设置商品规格'
+                                      });
+                                    }
+                                    resolve(true);
+                                  }
+                                }, 3000);
+                                } else {
+                                  console.log('未找到商品结果项');
+                                  resolve(true);
+                                }
                               }, 3000);
                             } else {
                               resolve(true);
@@ -1181,7 +2458,9 @@ async function publishNote(noteData, index) {
       args: [
         { title: noteData.title, body: noteData.body, tags: noteData.tags },
         noteData.productId,
-        noteData.productSpec
+        noteData.productSpec,
+        noteData.productSpec1,
+        noteData.productSpec2
       ]
     });
 
@@ -1189,11 +2468,33 @@ async function publishNote(noteData, index) {
     addLog('等待内容填写完成...');
     await new Promise(resolve => setTimeout(resolve, 10000));
 
+    // 检查是否有规格错误
+    if (window.specSelectionErrors && window.specSelectionErrors.some(err => err.noteTitle === noteData.title)) {
+      addLog(`第${index + 1}篇笔记的规格选择失败，跳过发布`, 'error');
+      
+      // 记录详细错误信息
+      const errors = window.specSelectionErrors.filter(err => err.noteTitle === noteData.title);
+      errors.forEach(err => {
+        addLog(`错误: ${err.error}`, 'error');
+        addLog(`可用选项: ${err.specOptions.join(', ')}`, 'info');
+      });
+      
+      return false;
+    }
+
     addLog(`第${index + 1}篇笔记发布准备完成，请手动点击发布按钮`, 'success');
     
-    // 检查商品规格
+    // 输出规格信息
     if (noteData.productSpec) {
       addLog(`商品规格设置为: ${noteData.productSpec}`, 'info');
+    }
+    
+    if (noteData.productSpec1) {
+      addLog(`商品规格1设置为: ${noteData.productSpec1}`, 'info');
+    }
+    
+    if (noteData.productSpec2) {
+      addLog(`商品规格2设置为: ${noteData.productSpec2}`, 'info');
     }
     
     // 标记笔记为已发布
@@ -1499,6 +2800,30 @@ function updateNotePanels() {
       productSpecSpan.style.marginTop = '5px';
       productLink.parentNode.appendChild(productSpecSpan);
     }
+    
+    // 添加商品规格1显示
+    if (note.productSpec1) {
+      const productSpec1Span = document.createElement('span');
+      productSpec1Span.className = 'product-spec1';
+      productSpec1Span.textContent = `商品规格1: ${note.productSpec1}`;
+      productSpec1Span.style.fontSize = '12px';
+      productSpec1Span.style.display = 'block';
+      productSpec1Span.style.marginTop = '5px';
+      productSpec1Span.style.color = '#007bff';
+      productLink.parentNode.appendChild(productSpec1Span);
+    }
+    
+    // 添加商品规格2显示
+    if (note.productSpec2) {
+      const productSpec2Span = document.createElement('span');
+      productSpec2Span.className = 'product-spec2';
+      productSpec2Span.textContent = `商品规格2: ${note.productSpec2}`;
+      productSpec2Span.style.fontSize = '12px';
+      productSpec2Span.style.display = 'block';
+      productSpec2Span.style.marginTop = '5px';
+      productSpec2Span.style.color = '#28a745';
+      productLink.parentNode.appendChild(productSpec2Span);
+    }
 
     // 如果是从飞书导入的笔记，显示记录ID
     if (note.from === 'feishu' && note.recordId) {
@@ -1754,7 +3079,7 @@ function updateNotePanels() {
       notes[index].images = [];
       notes[index].imageUrls = {};
       imagePreview.innerHTML = '';
-      imageInput.value = '';
+      imageInput.value = ''; // 重置文件输入框
       addLog('已清除所有图片');
       saveState();
     };
@@ -1796,8 +3121,60 @@ function updateNotePanels() {
       });
       productSpecContainer.appendChild(productSpecInput);
       
+      // 创建商品规格1容器
+      const productSpec1Container = document.createElement('div');
+      productSpec1Container.className = 'product-spec-container';
+      productSpec1Container.style.marginTop = '10px';
+      
+      // 创建商品规格1标签
+      const productSpec1Label = document.createElement('label');
+      productSpec1Label.textContent = '商品规格1:';
+      productSpec1Label.style.display = 'block';
+      productSpec1Label.style.marginBottom = '5px';
+      productSpec1Container.appendChild(productSpec1Label);
+      
+      // 创建商品规格1输入框
+      const productSpec1Input = document.createElement('input');
+      productSpec1Input.type = 'text';
+      productSpec1Input.className = 'product-spec1-input';
+      productSpec1Input.value = note.productSpec1 || '';
+      productSpec1Input.style.width = '100%';
+      productSpec1Input.style.padding = '5px';
+      productSpec1Input.style.boxSizing = 'border-box';
+      productSpec1Input.addEventListener('change', (e) => {
+        handleNoteChange(index, 'productSpec1', e.target.value);
+      });
+      productSpec1Container.appendChild(productSpec1Input);
+      
+      // 创建商品规格2容器
+      const productSpec2Container = document.createElement('div');
+      productSpec2Container.className = 'product-spec-container';
+      productSpec2Container.style.marginTop = '10px';
+      
+      // 创建商品规格2标签
+      const productSpec2Label = document.createElement('label');
+      productSpec2Label.textContent = '商品规格2:';
+      productSpec2Label.style.display = 'block';
+      productSpec2Label.style.marginBottom = '5px';
+      productSpec2Container.appendChild(productSpec2Label);
+      
+      // 创建商品规格2输入框
+      const productSpec2Input = document.createElement('input');
+      productSpec2Input.type = 'text';
+      productSpec2Input.className = 'product-spec2-input';
+      productSpec2Input.value = note.productSpec2 || '';
+      productSpec2Input.style.width = '100%';
+      productSpec2Input.style.padding = '5px';
+      productSpec2Input.style.boxSizing = 'border-box';
+      productSpec2Input.addEventListener('change', (e) => {
+        handleNoteChange(index, 'productSpec2', e.target.value);
+      });
+      productSpec2Container.appendChild(productSpec2Input);
+      
       // 将商品规格容器添加到商品ID容器后面
       productIdContainer.parentNode.insertBefore(productSpecContainer, productIdContainer.nextSibling);
+      productIdContainer.parentNode.insertBefore(productSpec1Container, productSpecContainer.nextSibling);
+      productIdContainer.parentNode.insertBefore(productSpec2Container, productSpec1Container.nextSibling);
     }
   });
 
@@ -1877,15 +3254,62 @@ async function restoreImagePreviews(panel, index) {
     imagePreview.innerHTML = '';
     
     // 为每个图片创建预览
-    Object.entries(notes[index].imageUrls).forEach(([imageIndex, dataUrl]) => {
+    Object.entries(notes[index].imageUrls).forEach(([imageIndex, imageData]) => {
+      if (!imageData) return;
+      
+      // 处理不同格式的图片数据
+      let dataUrl;
+      let filename = '';
+      
+      if (typeof imageData === 'string') {
+        // 旧格式：直接是base64字符串
+        dataUrl = imageData;
+      } else if (typeof imageData === 'object') {
+        // 新格式：对象包含blob, url和filename
+        if (imageData.url && typeof imageData.url === 'string') {
+          dataUrl = imageData.url;
+        } else if (imageData.blob instanceof Blob) {
+          // 我们在创建预览时不需要将blob转为base64，只有在实际发布时才需要
+          // 这里直接使用blobUrl
+          if (!imageData.url) {
+            imageData.url = URL.createObjectURL(imageData.blob);
+          }
+          dataUrl = imageData.url;
+        }
+        
+        // 保存文件名用于显示
+        filename = imageData.filename || `image_${parseInt(imageIndex) + 1}.jpg`;
+      }
+      
       if (!dataUrl) return;
       
-      const imageData = {
+      const previewData = {
         index: parseInt(imageIndex),
-        dataUrl
+        dataUrl,
+        name: filename
       };
       
-      const wrapper = createImagePreview(imageData, parseInt(imageIndex), panel, index);
+      const wrapper = createImagePreview(previewData, parseInt(imageIndex), panel, index);
+      
+      // 在预览中显示文件名提示
+      if (filename) {
+        const nameLabel = document.createElement('span');
+        nameLabel.className = 'image-filename';
+        nameLabel.textContent = filename;
+        nameLabel.style.position = 'absolute';
+        nameLabel.style.bottom = '0';
+        nameLabel.style.left = '0';
+        nameLabel.style.right = '0';
+        nameLabel.style.fontSize = '8px';
+        nameLabel.style.background = 'rgba(0,0,0,0.5)';
+        nameLabel.style.color = 'white';
+        nameLabel.style.padding = '2px';
+        nameLabel.style.textOverflow = 'ellipsis';
+        nameLabel.style.overflow = 'hidden';
+        nameLabel.style.whiteSpace = 'nowrap';
+        wrapper.appendChild(nameLabel);
+      }
+      
       imagePreview.appendChild(wrapper);
     });
     
@@ -1916,6 +3340,10 @@ function handleNoteChange(index, field, value) {
     notes[index].productId = value;
   } else if (field === 'productSpec') {
     notes[index].productSpec = value;
+  } else if (field === 'productSpec1') {
+    notes[index].productSpec1 = value;
+  } else if (field === 'productSpec2') {
+    notes[index].productSpec2 = value;
   }
   
   // 保存修改
@@ -2564,6 +3992,110 @@ async function importFromFeishu() {
     addLog('正在预加载图片...', 'step');
     const notesWithImages = await feishuClient.preloadImages(fetchedNotes);
     
+    // 处理图片数据
+    addLog('开始处理图片数据...', 'step');
+    for (let noteIndex = 0; noteIndex < notesWithImages.length; noteIndex++) {
+      const note = notesWithImages[noteIndex];
+      if (!note.recordId) {
+        note.recordId = `temp_${Date.now()}_${noteIndex}`;
+      }
+      
+      // 确保图片数组存在
+      if (note.images && Array.isArray(note.images) && note.images.length > 0) {
+        addLog(`处理笔记 ${noteIndex + 1}/${notesWithImages.length}: ${note.title}`, 'info');
+        
+        // 创建存储图片的数组
+        if (!note.localImages) {
+          note.localImages = [];
+        }
+        
+        // 为每张图片处理数据
+        for (let imgIndex = 0; imgIndex < note.images.length; imgIndex++) {
+          const img = note.images[imgIndex];
+          if (!img) continue;
+          
+          try {
+            // 获取blob数据
+            let blob = img.blob || img.data;
+            if (!blob && img.url) {
+              try {
+                const response = await fetch(img.url);
+                blob = await response.blob();
+              } catch (e) {
+                console.error(`无法从URL获取图片: ${e.message}`);
+                continue;
+              }
+            }
+            
+            // 如果没有有效blob，跳过
+            if (!blob || !(blob instanceof Blob)) {
+              console.warn(`笔记 ${noteIndex + 1} 的第 ${imgIndex + 1} 张图片没有有效数据`);
+              continue;
+            }
+            
+            // 生成文件名
+            let filename = '';
+            if (img.filename) {
+              filename = img.filename;
+            } else if (img.name) {
+              filename = img.name;
+            } else {
+              filename = `image_${imgIndex + 1}.jpg`;
+            }
+            
+            // 确保文件名是安全的
+            filename = filename.replace(/[^\w\s.-]/gi, '_');
+            
+            // 将Blob转换为Base64
+            const base64Data = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+            
+            // 保存内存中的图片数据引用 - 简化数据结构，只保存必要信息
+            note.localImages.push({
+              index: imgIndex,
+              filename: filename,
+              base64: base64Data,
+              // 移除blob引用，与本地上传保持一致，避免消息过大
+              // blob: blob,
+              processed: true
+            });
+            
+            addLog(`已处理笔记 ${noteIndex + 1} 的第 ${imgIndex + 1} 张图片: ${filename}`, 'info');
+          } catch (err) {
+            console.error(`处理图片失败:`, err);
+            addLog(`处理笔记 ${noteIndex + 1} 的第 ${imgIndex + 1} 张图片失败: ${err.message}`, 'error');
+          }
+        }
+        
+        addLog(`笔记 "${note.title}" 的 ${note.localImages.length} 张图片已处理完成`, 'success');
+      }
+    }
+    
+    // 提示用户图片处理完成
+    addLog('所有图片已处理完成，准备导入数据', 'success');
+    
+    // 显示操作指南
+    const logArea = document.getElementById('log');
+    if (logArea) {
+      const guideDiv = document.createElement('div');
+      guideDiv.innerHTML = `
+        <div style="border:2px solid #4CAF50; padding:10px; margin:10px 0; background:#E8F5E9;">
+          <h3 style="color:#2E7D32; margin-top:0;">操作指南：</h3>
+          <ol style="padding-left:20px;">
+            <li>所有图片已自动处理完成，无需手动操作</li>
+            <li>选择要发布的笔记</li>
+            <li>点击"发布笔记"按钮即可发布</li>
+          </ol>
+          <p>发布过程会自动使用已处理的图片数据</p>
+        </div>
+      `;
+      logArea.appendChild(guideDiv);
+    }
+    
     // 转换为插件使用的格式
     notes = await Promise.all(notesWithImages.map(async (note) => {
       // 处理标签，确保每个标签都带有#号
@@ -2583,46 +4115,13 @@ async function importFromFeishu() {
         }
       }
       
-      // 收集图片 - 重要修改：确保正确存储为base64格式并按文件名排序
-      const images = [];
+      // 收集图片数据 - 直接使用处理好的base64数据
+      const images = {}; // 改为空对象，与本地上传保持一致
       const imageUrls = {};
       
-      if (note.images && Array.isArray(note.images) && note.images.length > 0) {
-        // 创建带索引和文件名的图片数组，用于排序
-        const imageDataArray = [];
-        
-        // 处理预加载后的图片格式
-        for (let index = 0; index < note.images.length; index++) {
-          const img = note.images[index];
-          if (img) {
-            // 设置一个默认的文件名，从名称中提取，或者使用索引
-            let filename = '';
-            
-            // 尝试从原始对象中获取文件名
-            if (img.name) {
-              filename = img.name;
-            } else if (img.file && img.file.name) {
-              filename = img.file.name;
-            } else if (note.imageNames && note.imageNames[index]) {
-              filename = note.imageNames[index];
-            } else {
-              // 如果无法获取文件名，则使用索引作为名称
-              filename = `image_${index + 1}.jpg`;
-            }
-            
-            // 保存图片数据和文件名，以便之后排序
-            imageDataArray.push({
-              index,
-              filename,
-              blob: img.blob || img.data,
-              url: img.url || '',
-              blobUrl: img.blobUrl || ''
-            });
-          }
-        }
-        
+      if (note.localImages && Array.isArray(note.localImages) && note.localImages.length > 0) {
         // 按文件名中的数字排序图片
-        imageDataArray.sort((a, b) => {
+        note.localImages.sort((a, b) => {
           // 从文件名中提取数字
           const getNumberFromFilename = (filename) => {
             if (!filename) return Infinity;
@@ -2653,7 +4152,6 @@ async function importFromFeishu() {
           const numA = getNumberFromFilename(a.filename);
           const numB = getNumberFromFilename(b.filename);
           
-          // 记录排序日志
           console.log(`排序飞书图片: ${a.filename} (${numA}) vs ${b.filename} (${numB})`);
           
           return numA - numB; // 按数字升序排序
@@ -2661,42 +4159,16 @@ async function importFromFeishu() {
         
         addLog(`飞书图片已按文件名中的数字排序`, 'info');
         
-        // 将排序后的图片数据保存回对应的数组
-        for (let i = 0; i < imageDataArray.length; i++) {
-          const imgData = imageDataArray[i];
-          
-          // 保存原始Blob对象到images数组
-          images[i] = imgData.blob;
-          
-          // 将Blob转换为base64
-          if (imgData.blob) {
-            const base64 = await new Promise((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result);
-              reader.readAsDataURL(imgData.blob);
-            });
-            imageUrls[i] = base64;
-            addLog(`已处理第 ${i + 1} 张图片为base64格式：${imgData.filename}`, 'info');
-          } else if (imgData.blobUrl) {
-            // 尝试从blobUrl获取内容并转换
-            try {
-              const response = await fetch(imgData.blobUrl);
-              const blob = await response.blob();
-              const base64 = await new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.readAsDataURL(blob);
-              });
-              imageUrls[i] = base64;
-              addLog(`已从blobUrl处理第 ${i + 1} 张图片：${imgData.filename}`, 'info');
-            } catch (e) {
-              addLog(`处理图片URL失败: ${e.message}`, 'error');
-              // 如果失败，尝试使用其他可用的URL
-              imageUrls[i] = imgData.blobUrl || imgData.url || '';
-            }
+        // 将排序后的图片数据保存到对应数组
+        for (let i = 0; i < note.localImages.length; i++) {
+          const img = note.localImages[i];
+          // 直接使用已经转换好的base64数据
+          if (img.base64) {
+            imageUrls[i] = img.base64; // 只保存base64字符串
+            addLog(`已获取第 ${i + 1} 张排序后的图片: ${img.filename}`, 'success');
           } else {
-            // 使用其他可用的URL
-            imageUrls[i] = imgData.url || '';
+            addLog(`第 ${i + 1} 张图片缺少base64数据`, 'warning');
+            imageUrls[i] = '';
           }
         }
       }
@@ -2720,10 +4192,13 @@ async function importFromFeishu() {
         tags: tags, // 确保tags是数组
         productId: productIdValue, // 使用处理后的商品ID
         productSpec: note.productSpec || '', // 添加商品规格字段
-        images: images,
-        imageUrls: imageUrls,
+        productSpec1: note.productSpec1 || '', // 添加商品规格1字段
+        productSpec2: note.productSpec2 || '', // 添加商品规格2字段
+        images: images, // 空对象，与本地上传保持一致
+        imageUrls: imageUrls, // 只包含base64字符串
         recordId: note.recordId || null, // 保存记录ID，用于发布后更新状态
-        from: 'feishu' // 标记来源为飞书
+        from: 'feishu', // 标记来源为飞书
+        id: Date.now() + '_' + Math.random().toString(36).substring(2, 9) // 生成唯一ID
       };
     }));
     
@@ -2733,7 +4208,7 @@ async function importFromFeishu() {
     // 更新UI
     updateNotePanels();
     
-    addLog(`成功导入 ${notes.length} 篇笔记，包含 ${notesWithImages.reduce((count, note) => count + (note.images ? note.images.length : 0), 0)} 张图片`, 'success');
+    addLog(`成功导入 ${notes.length} 篇笔记，包含 ${notesWithImages.reduce((count, note) => count + (note.localImages ? note.localImages.length : 0), 0)} 张图片`, 'success');
   } catch (error) {
     console.error('从飞书导入数据失败:', error);
     addLog(`从飞书导入数据失败: ${error.message}`, 'error');
@@ -2817,6 +4292,28 @@ async function uploadToXiaohongshu() {
         
         if (publishResult) {
           addLog(`笔记 "${note.title}" 发布成功`, 'success');
+          
+          // 标记该笔记为已发布
+          notes[index].published = true;
+          
+          // 如果是从飞书导入的笔记，更新飞书状态
+          if (note.from === 'feishu' && note.recordId && window.feishuClient) {
+            try {
+              await window.feishuClient.updatePublishStatus(note.recordId, note.title, 'published');
+              addLog(`已更新飞书中的发布状态: ${note.title}`, 'success');
+              
+              // 如果有本地下载的图片，标记为已处理
+              if (note.localImages && note.localImages.length > 0) {
+                note.localImagesProcessed = true;
+                addLog(`笔记 "${note.title}" 的本地图片已标记为已处理，建议手动清理下载文件夹`, 'info');
+              }
+            } catch (updateError) {
+              addLog(`更新飞书发布状态失败: ${updateError.message}`, 'warning');
+            }
+          }
+          
+          // 保存状态
+          await saveState();
         }
         
         // 等待指定时间后再发布下一篇
@@ -3021,6 +4518,13 @@ function setupEventListeners() {
           return;
         }
 
+        // 检查积分（MVP功能）
+        const pointsCheckResult = await checkAndDeductPoints(1); // 消费1积分
+        if (!pointsCheckResult) {
+          addLog('积分检查失败，无法开始发布', 'error');
+          return;
+        }
+
         // 检查笔记内容
         for (let i = 0; i < notes.length; i++) {
           if (!notes[i].title || notes[i].images.length === 0) {
@@ -3203,5 +4707,350 @@ function clearLogs() {
   
   // 清空存储的日志
   chrome.storage.local.remove('logs');
-}// 添加状态显示更新函数
+  
+  // 清空规格选择错误
+  window.specSelectionErrors = [];
+  
+  // 添加提示
+  addLog('日志已清空', 'success');
+}
+
+// 添加下载日志的函数
+function downloadLogs() {
+  try {
+    // 获取所有日志内容
+    const logPanel = document.getElementById('logPanel');
+    if (!logPanel || !logPanel.childNodes.length) {
+      addLog('没有可下载的日志', 'warning');
+      return;
+    }
+    
+    // 构建日志文本
+    let logText = '=== 小红书发布插件日志 ===\n';
+    logText += `导出时间: ${new Date().toLocaleString()}\n\n`;
+    
+    // 添加普通日志
+    Array.from(logPanel.childNodes).forEach(node => {
+      if (node.textContent) {
+        logText += node.textContent + '\n';
+      }
+    });
+    
+    // 如果有规格选择错误，添加到日志
+    if (window.specSelectionErrors && window.specSelectionErrors.length > 0) {
+      logText += '\n\n=== 规格选择错误详情 ===\n';
+      window.specSelectionErrors.forEach((err, index) => {
+        logText += `\n[错误 ${index + 1}]\n`;
+        logText += `时间: ${err.time}\n`;
+        logText += `笔记标题: ${err.noteTitle}\n`;
+        logText += `错误信息: ${err.error}\n`;
+        logText += `可用选项: ${err.specOptions ? err.specOptions.join(', ') : '无'}\n`;
+      });
+    }
+    
+    // 创建Blob对象
+    const blob = new Blob([logText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    
+    // 创建下载链接
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `小红书发布插件日志_${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    
+    // 清理
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+    
+    addLog('日志已下载', 'success');
+  } catch (error) {
+    console.error('下载日志失败:', error);
+    addLog(`下载日志失败: ${error.message}`, 'error');
+  }
+}
+
+// 监听来自background的消息
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  switch (message.type) {
+    case 'STATUS_UPDATE':
+      updatePublishStatus(message.data);
+      break;
+    case 'PUBLISH_COMPLETED':
+      handlePublishCompleted(message.data);
+      break;
+    case 'POINTS_UPDATED':
+      // 更新积分显示
+      if (window.pointsManager) {
+        window.pointsManager.pointsData = message.data;
+        window.pointsManager.updatePointsDisplay();
+      }
+      break;
+  }
+});
+
+// 处理发布完成事件
+function handlePublishCompleted(data) {
+  addLog(`笔记发布完成: ${data.noteTitle}`, 'success');
+  // 可以在这里添加其他处理逻辑
+}
+
+// ==================== MVP积分管理功能 ====================
+
+// MVP功能初始化
+async function initMVPFeatures() {
+  console.log('初始化MVP功能');
+  
+  // 初始化登录状态
+  await checkLoginStatus();
+  
+  // 绑定登录相关事件
+  setupLoginEventListeners();
+  
+  // 设置积分定时刷新
+  setupPointsRefresh();
+  
+  // 监听来自background的消息
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'LOGIN_STATUS_CHANGED') {
+      updateLoginStatusUI(message.data.isLoggedIn);
+    }
+  });
+}
+
+// 检查登录状态
+async function checkLoginStatus() {
+  try {
+    const result = await chrome.storage.local.get(['authToken']);
+    const authToken = result.authToken;
+    
+    if (authToken) {
+      updateLoginStatusUI(true);
+      await loadPoints();
+    } else {
+      updateLoginStatusUI(false);
+    }
+  } catch (error) {
+    console.error('检查登录状态失败:', error);
+    updateLoginStatusUI(false);
+  }
+}
+
+// 更新登录状态UI
+function updateLoginStatusUI(isLoggedIn) {
+  const loginStatus = document.getElementById('loginStatus');
+  const statusText = document.getElementById('statusText');
+  const loginBtn = document.getElementById('loginBtn');
+  const userMenu = document.getElementById('userMenu');
+  
+  if (isLoggedIn) {
+    loginStatus.className = 'login-status logged-in';
+    statusText.textContent = '已登录';
+    loginBtn.style.display = 'none';
+    userMenu.style.display = 'block';
+  } else {
+    loginStatus.className = 'login-status logged-out';
+    statusText.textContent = '未登录';
+    loginBtn.style.display = 'block';
+    userMenu.style.display = 'none';
+  }
+}
+
+// 绑定登录相关事件
+function setupLoginEventListeners() {
+  const loginBtn = document.getElementById('loginBtn');
+  const userMenuBtn = document.getElementById('userMenuBtn');
+  const userDropdown = document.getElementById('userDropdown');
+  
+  // 登录按钮点击事件
+  if (loginBtn) {
+    loginBtn.addEventListener('click', openLogin);
+  }
+  
+  // 用户菜单按钮点击事件
+  if (userMenuBtn) {
+    userMenuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      userDropdown.classList.toggle('show');
+    });
+  }
+  
+  // 点击其他地方关闭下拉菜单
+  document.addEventListener('click', () => {
+    if (userDropdown) {
+      userDropdown.classList.remove('show');
+    }
+  });
+}
+
+// 加载积分信息
+async function loadPoints() {
+  try {
+    const result = await chrome.storage.local.get(['authToken']);
+    const authToken = result.authToken;
+    
+    if (!authToken) {
+      console.log('未找到authToken');
+      return;
+    }
+    
+    // 替换为实际的域名
+    const API_BASE_URL = 'https://your-domain.zeabur.app';
+    
+    const response = await fetch(`${API_BASE_URL}/api/points`, {
+      headers: {
+        'Authorization': `Bearer ${authToken}`
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success) {
+        // 更新积分显示
+        const currentPointsElement = document.getElementById('currentPoints');
+        if (currentPointsElement) {
+          currentPointsElement.textContent = data.points.current;
+        }
+        
+        // 保存到本地存储
+        await chrome.storage.local.set({ 
+          pointsData: data.points,
+          lastPointsUpdate: Date.now()
+        });
+        
+        console.log('积分加载成功:', data.points);
+      } else {
+        console.error('获取积分失败:', data);
+      }
+    } else {
+      console.error('积分请求失败:', response.status);
+      // 如果是401，可能是token过期，清除登录状态
+      if (response.status === 401) {
+        await logout();
+      }
+    }
+  } catch (error) {
+    console.error('加载积分失败:', error);
+  }
+}
+
+// 设置积分定时刷新
+function setupPointsRefresh() {
+  // 每60秒刷新一次积分
+  setInterval(async () => {
+    const result = await chrome.storage.local.get(['authToken']);
+    if (result.authToken) {
+      await loadPoints();
+    }
+  }, 60000);
+}
+
+// 打开登录页面
+function openLogin() {
+  const loginUrl = 'https://your-domain.zeabur.app/login.html';
+  window.open(loginUrl, '_blank');
+}
+
+// 打开网站
+function openWebsite() {
+  const websiteUrl = 'https://your-domain.zeabur.app/user.html';
+  window.open(websiteUrl, '_blank');
+}
+
+// 退出登录
+async function logout() {
+  try {
+    // 清除本地存储
+    await chrome.storage.local.remove(['authToken', 'pointsData']);
+    
+    // 通知background
+    chrome.runtime.sendMessage({
+      type: 'CLEAR_AUTH_TOKEN'
+    }).catch(() => {});
+    
+    // 更新UI
+    updateLoginStatusUI(false);
+    
+    // 重置积分显示
+    const currentPointsElement = document.getElementById('currentPoints');
+    if (currentPointsElement) {
+      currentPointsElement.textContent = '0';
+    }
+    
+    addLog('已退出登录', 'info');
+  } catch (error) {
+    console.error('退出登录失败:', error);
+  }
+}
+
+// 检查积分并消费（用于发布前检查）
+async function checkAndDeductPoints(points = 1) {
+  try {
+    const result = await chrome.storage.local.get(['authToken']);
+    const authToken = result.authToken;
+    
+    if (!authToken) {
+      alert('请先登录');
+      return false;
+    }
+    
+    const API_BASE_URL = 'https://your-domain.zeabur.app';
+    
+    const response = await fetch(`${API_BASE_URL}/api/points/use`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      },
+      body: JSON.stringify({
+        points: points,
+        actionType: 'publish_note',
+        description: '发布笔记'
+      })
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success) {
+        // 更新积分显示
+        const currentPointsElement = document.getElementById('currentPoints');
+        if (currentPointsElement) {
+          currentPointsElement.textContent = data.afterPoints;
+        }
+        
+        // 保存新的积分数据
+        await chrome.storage.local.set({ 
+          pointsData: {
+            current: data.afterPoints,
+            totalConsumed: data.beforePoints - data.afterPoints + data.afterPoints,
+            totalRecharged: 0
+          }
+        });
+        
+        addLog(`积分消费成功: 消费${points}积分，剩余${data.afterPoints}积分`, 'success');
+        return true;
+      } else {
+        alert(data.error || '积分消费失败');
+        return false;
+      }
+    } else {
+      const errorData = await response.json();
+      if (response.status === 400 && errorData.error === '积分不足') {
+        alert('积分不足，请先充值');
+        openWebsite();
+      } else {
+        alert('积分消费失败，请重试');
+      }
+      return false;
+    }
+  } catch (error) {
+    console.error('积分消费失败:', error);
+    alert('网络错误，请检查网络连接');
+    return false;
+  }
+}
+
+// 添加状态显示更新函数
 

@@ -24,6 +24,8 @@ class FeishuBitableClient {
         tags: '标签',
         productId: '商品ID',
         productSpec: '商品规格', // 添加商品规格字段映射
+        productSpec1: '商品规格1', // 添加商品规格1字段映射
+        productSpec2: '商品规格2', // 添加商品规格2字段映射
         images: '图片链接'
       },
       filter: ''
@@ -588,6 +590,50 @@ class FeishuBitableClient {
           }
         }
         
+        // 提取商品规格1
+        let productSpec1 = '';
+        if (fieldMapping.productSpec1 && fields[fieldMapping.productSpec1]) {
+          const productSpec1Field = fields[fieldMapping.productSpec1];
+          
+          // 处理不同类型的商品规格1字段
+          if (typeof productSpec1Field === 'string') {
+            productSpec1 = productSpec1Field;
+          } else if (Array.isArray(productSpec1Field) && productSpec1Field.length > 0) {
+            // 如果是数组，尝试提取第一个元素
+            if (typeof productSpec1Field[0] === 'string') {
+              productSpec1 = productSpec1Field[0];
+            } else if (productSpec1Field[0] && typeof productSpec1Field[0] === 'object' && productSpec1Field[0].text) {
+              // 多选字段格式
+              productSpec1 = productSpec1Field[0].text;
+            }
+          } else if (productSpec1Field && typeof productSpec1Field === 'object' && productSpec1Field.text) {
+            // 单值多选字段
+            productSpec1 = productSpec1Field.text;
+          }
+        }
+        
+        // 提取商品规格2
+        let productSpec2 = '';
+        if (fieldMapping.productSpec2 && fields[fieldMapping.productSpec2]) {
+          const productSpec2Field = fields[fieldMapping.productSpec2];
+          
+          // 处理不同类型的商品规格2字段
+          if (typeof productSpec2Field === 'string') {
+            productSpec2 = productSpec2Field;
+          } else if (Array.isArray(productSpec2Field) && productSpec2Field.length > 0) {
+            // 如果是数组，尝试提取第一个元素
+            if (typeof productSpec2Field[0] === 'string') {
+              productSpec2 = productSpec2Field[0];
+            } else if (productSpec2Field[0] && typeof productSpec2Field[0] === 'object' && productSpec2Field[0].text) {
+              // 多选字段格式
+              productSpec2 = productSpec2Field[0].text;
+            }
+          } else if (productSpec2Field && typeof productSpec2Field === 'object' && productSpec2Field.text) {
+            // 单值多选字段
+            productSpec2 = productSpec2Field.text;
+          }
+        }
+        
         // 提取图片字段
         let imageUrls = [];
         if (fieldMapping.images && fields[fieldMapping.images]) {
@@ -714,6 +760,8 @@ class FeishuBitableClient {
           tags,
           productId,
           productSpec, // 添加商品规格字段
+          productSpec1, // 添加商品规格1字段
+          productSpec2, // 添加商品规格2字段
           imageUrls,
           images: [], // 存储实际图片对象
         };
