@@ -4897,7 +4897,7 @@ async function loadPoints() {
     }
     
     // 替换为实际的域名
-    const API_BASE_URL = 'https://your-domain.zeabur.app';
+    const API_BASE_URL = 'https://xhspay.zeabur.app';
     
     const response = await fetch(`${API_BASE_URL}/api/points`, {
       headers: {
@@ -4949,13 +4949,13 @@ function setupPointsRefresh() {
 
 // 打开登录页面
 function openLogin() {
-  const loginUrl = 'https://your-domain.zeabur.app/login.html';
+  const loginUrl = 'https://xhspay.zeabur.app/login.html';
   window.open(loginUrl, '_blank');
 }
 
 // 打开网站
 function openWebsite() {
-  const websiteUrl = 'https://your-domain.zeabur.app/user.html';
+  const websiteUrl = 'https://xhspay.zeabur.app/user.html';
   window.open(websiteUrl, '_blank');
 }
 
@@ -4996,7 +4996,7 @@ async function checkAndDeductPoints(points = 1) {
       return false;
     }
     
-    const API_BASE_URL = 'https://your-domain.zeabur.app';
+    const API_BASE_URL = 'https://xhspay.zeabur.app';
     
     const response = await fetch(`${API_BASE_URL}/api/points/use`, {
       method: 'POST',

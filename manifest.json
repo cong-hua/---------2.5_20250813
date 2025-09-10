@@ -15,7 +15,7 @@
   ],
   "host_permissions": [
     "<all_urls>",
-    "https://your-domain.zeabur.app/*"
+    "https://xhspay.zeabur.app/*"
   ],
   "web_accessible_resources": [{
     "resources": ["popup.html"],
@@ -45,7 +45,7 @@
       "js": ["content.js"]
     },
     {
-      "matches": ["https://your-domain.zeabur.app/ext/bridge*"],
+      "matches": ["https://xhspay.zeabur.app/ext/bridge*"],
       "js": ["site_bridge.js"]
     }
   ]

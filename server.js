@@ -2,7 +2,7 @@
 const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const axios = require('axios');
@@ -10,17 +10,17 @@ const PaymentFactory = require('./payment');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.SERVER_PORT || 3000;
+const PORT = process.env.SERVER_PORT || 8080;
 
 // 中间件
 app.use(cors({
   origin: function (origin, callback) {
     // 允许的来源列表
     const allowedOrigins = [
-      'http://localhost:3000',
-      'http://127.0.0.1:3000',
+      'http://localhost:8080',
+      'http://127.0.0.1:8080',
       // 生产环境域名（部署时需要替换）
-      'https://your-domain.zeabur.app',
+      'https://xhspay.zeabur.app',
       // 允许所有Chrome扩展（开发时）
       'chrome-extension://*'
     ];
