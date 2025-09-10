@@ -11,6 +11,7 @@ const PaymentFactory = require('./payment');
 const { connectDB } = require('./config/database');
 const UserService = require('./services/UserService');
 const PointsService = require('./services/PointsService');
+const PointsOrderService = require('./services/PointsOrderService');
 require('dotenv').config();
 
 const app = express();
@@ -437,6 +438,28 @@ app.get('/api/points/records', authenticateToken, async (req, res) => {
   }
 });
 
+// 获取用户积分统计
+app.get('/api/points/stats', authenticateToken, async (req, res) => {
+  try {
+    const summary = await PointsService.getUserPointsSummary(req.user.userId);
+    
+    res.json({
+      success: true,
+      points: {
+        current: summary.currentBalance,
+        totalEarned: summary.totalEarned,
+        totalConsumed: summary.totalConsumed,
+        lastEarn: summary.lastEarn,
+        lastConsume: summary.lastConsume,
+        recordCount: summary.recordCount
+      }
+    });
+  } catch (error) {
+    console.error('获取积分统计失败:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
 // ==================== 支付相关函数 ====================
 
 // ==================== 支付回调 ====================
@@ -585,9 +608,121 @@ app.post('/api/points/use', authenticateToken, async (req, res) => {
   }
 });
 
-// 支付占位接口
+// 创建积分订单
 app.post('/api/pay/checkout', authenticateToken, async (req, res) => {
-  res.json({ success: true, message: '支付开发中' });
+  try {
+    const { amount, points, description } = req.body;
+    
+    if (!amount || !points) {
+      return res.status(400).json({ error: '充值金额和积分不能为空' });
+    }
+    
+    if (amount <= 0 || points <= 0) {
+      return res.status(400).json({ error: '充值金额和积分必须大于0' });
+    }
+    
+    // 验证积分比例（1元=10积分）
+    const expectedPoints = amount * 10;
+    if (points !== expectedPoints) {
+      return res.status(400).json({ error: '积分数量不正确' });
+    }
+
+    // 创建订单
+    const order = await PointsOrderService.createOrder(
+      req.user.userId,
+      amount,
+      points,
+      description || `充值${points}积分`
+    );
+
+    // 模拟支付（实际应用中应该调用第三方支付接口）
+    try {
+      await PointsOrderService.payOrder(order._id);
+      
+      res.json({
+        success: true,
+        message: '充值成功',
+        order: order.getDetails(),
+        points: points
+      });
+    } catch (paymentError) {
+      console.error('支付失败:', paymentError);
+      
+      res.json({
+        success: false,
+        message: '支付失败',
+        order: order.getDetails(),
+        error: paymentError.message
+      });
+    }
+  } catch (error) {
+    console.error('创建订单失败:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 获取用户订单列表
+app.get('/api/orders', authenticateToken, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const status = req.query.status || null;
+
+    const result = await PointsOrderService.getUserOrders(
+      req.user.userId,
+      page,
+      limit,
+      status
+    );
+
+    res.json({
+      success: true,
+      orders: result.orders.map(order => order.getDetails()),
+      pagination: result.pagination
+    });
+  } catch (error) {
+    console.error('获取订单列表失败:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 获取订单详情
+app.get('/api/orders/:orderId', authenticateToken, async (req, res) => {
+  try {
+    const order = await PointsOrderService.getOrderById(req.params.orderId);
+    
+    if (!order) {
+      return res.status(404).json({ error: '订单不存在' });
+    }
+    
+    // 验证订单归属
+    if (order.userId._id.toString() !== req.user.userId) {
+      return res.status(403).json({ error: '无权访问此订单' });
+    }
+
+    res.json({
+      success: true,
+      order: order.getDetails()
+    });
+  } catch (error) {
+    console.error('获取订单详情失败:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 获取订单统计
+app.get('/api/orders/stats', authenticateToken, async (req, res) => {
+  try {
+    const stats = await PointsOrderService.getOrderStats(req.user.userId);
+    
+    res.json({
+      success: true,
+      stats
+    });
+  } catch (error) {
+    console.error('获取订单统计失败:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
 });
 
 // 插件桥接页面
@@ -657,7 +792,7 @@ app.get('/ext/bridge', (req, res) => {
         </div>
         
         <script>
-            const token = new URLSearchParams(window.location.hash.slice(1)).get('t');
+            const token = new URLSearchParams(window.location.search).get('token');
             if (token) {
                 // 保存token到localStorage
                 localStorage.setItem('token', token);
@@ -665,11 +800,27 @@ app.get('/ext/bridge', (req, res) => {
                 // 尝试发送token到插件
                 try {
                     if (window.chrome && window.chrome.runtime) {
-                        // 获取插件ID（需要根据实际情况调整）
-                        const extensionId = 'YOUR_EXTENSION_ID'; // 需要替换为实际插件ID
-                        chrome.runtime.sendMessage(extensionId, {
-                            type: 'SET_AUTH_TOKEN',
-                            token: token
+                        // 尝试常见的插件ID格式
+                        const possibleIds = [
+                            ' YOUR_EXTENSION_ID', // 需要替换为实际插件ID
+                            'chrome-extension://' + window.location.hostname.split('.')[0] + '//_generated_background_page.html'
+                        ];
+                        
+                        // 尝试发送消息到插件
+                        possibleIds.forEach(id => {
+                            try {
+                                chrome.runtime.sendMessage(id, {
+                                    type: 'SET_AUTH_TOKEN',
+                                    token: token
+                                });
+                            } catch (e) {
+                                // 忽略错误，继续尝试下一个ID
+                            }
+                        });
+                        
+                        // 也尝试通过storage API同步
+                        chrome.storage.local.set({ authToken: token }, () => {
+                            console.log('Token已保存到Chrome存储');
                         });
                     }
                 } catch (error) {
@@ -683,6 +834,19 @@ app.get('/ext/bridge', (req, res) => {
                 if (window.history.replaceState) {
                     window.history.replaceState({}, document.title, window.location.pathname);
                 }
+                
+                // 通知插件登录状态改变
+                try {
+                    if (window.chrome && window.chrome.runtime) {
+                        // 广播消息到所有可能的插件
+                        chrome.runtime.sendMessage('', {
+                            type: 'LOGIN_STATUS_CHANGED',
+                            data: { isLoggedIn: true }
+                        });
+                    }
+                } catch (error) {
+                    console.log('状态同步失败，但不影响使用');
+                }
             } else {
                 document.getElementById('status').textContent = '未检测到登录信息，请重新操作';
             }
@@ -691,6 +855,508 @@ app.get('/ext/bridge', (req, res) => {
             setTimeout(() => {
                 window.close();
             }, 3000);
+        </script>
+    </body>
+    </html>
+  `);
+});
+
+// 积分充值页面
+app.get('/recharge', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>积分充值 - 小红书插件</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                color: #333;
+            }
+            
+            .header {
+                background: rgba(255, 255, 255, 0.95);
+                backdrop-filter: blur(10px);
+                box-shadow: 0 2px 20px rgba(0,0,0,0.1);
+                padding: 0 20px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                height: 70px;
+            }
+            
+            .logo {
+                font-size: 24px;
+                font-weight: 600;
+                color: #ff6b6b;
+            }
+            
+            .user-info {
+                display: flex;
+                align-items: center;
+                gap: 15px;
+            }
+            
+            .user-avatar {
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                background: #ff6b6b;
+                color: white;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: 600;
+            }
+            
+            .logout-btn {
+                background: #dc3545;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 14px;
+            }
+            
+            .logout-btn:hover {
+                background: #c82333;
+            }
+            
+            .container {
+                max-width: 800px;
+                margin: 40px auto;
+                padding: 0 20px;
+            }
+            
+            .card {
+                background: rgba(255, 255, 255, 0.95);
+                backdrop-filter: blur(10px);
+                border-radius: 20px;
+                padding: 40px;
+                box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+                margin-bottom: 30px;
+            }
+            
+            .card h2 {
+                color: #333;
+                margin-bottom: 30px;
+                text-align: center;
+                font-size: 28px;
+            }
+            
+            .current-points {
+                text-align: center;
+                margin-bottom: 40px;
+            }
+            
+            .points-display {
+                font-size: 48px;
+                font-weight: 700;
+                color: #ff6b6b;
+                margin-bottom: 10px;
+            }
+            
+            .points-label {
+                color: #666;
+                font-size: 16px;
+            }
+            
+            .packages {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 20px;
+                margin-bottom: 40px;
+            }
+            
+            .package {
+                border: 2px solid #e0e0e0;
+                border-radius: 15px;
+                padding: 30px 20px;
+                text-align: center;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                position: relative;
+            }
+            
+            .package:hover {
+                border-color: #ff6b6b;
+                transform: translateY(-5px);
+                box-shadow: 0 10px 25px rgba(255, 107, 107, 0.2);
+            }
+            
+            .package.selected {
+                border-color: #ff6b6b;
+                background: linear-gradient(135deg, #ff6b6b10, #ff6b6b20);
+            }
+            
+            .package.popular {
+                border-color: #ff6b6b;
+            }
+            
+            .package.popular::before {
+                content: '热门';
+                position: absolute;
+                top: -10px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: #ff6b6b;
+                color: white;
+                padding: 5px 15px;
+                border-radius: 15px;
+                font-size: 12px;
+            }
+            
+            .price {
+                font-size: 32px;
+                font-weight: 700;
+                color: #333;
+                margin-bottom: 10px;
+            }
+            
+            .price .currency {
+                font-size: 16px;
+                color: #666;
+            }
+            
+            .points {
+                color: #ff6b6b;
+                font-size: 18px;
+                font-weight: 600;
+                margin-bottom: 10px;
+            }
+            
+            .description {
+                color: #666;
+                font-size: 14px;
+            }
+            
+            .custom-amount {
+                border: 2px solid #e0e0e0;
+                border-radius: 15px;
+                padding: 30px;
+                margin-bottom: 30px;
+            }
+            
+            .custom-amount h3 {
+                margin-bottom: 20px;
+                color: #333;
+            }
+            
+            .amount-input {
+                display: flex;
+                align-items: center;
+                gap: 15px;
+                margin-bottom: 15px;
+            }
+            
+            .amount-input input {
+                flex: 1;
+                padding: 15px;
+                border: 2px solid #e0e0e0;
+                border-radius: 10px;
+                font-size: 16px;
+            }
+            
+            .amount-input input:focus {
+                outline: none;
+                border-color: #ff6b6b;
+            }
+            
+            .points-preview {
+                color: #ff6b6b;
+                font-weight: 600;
+            }
+            
+            .checkout-btn {
+                width: 100%;
+                padding: 18px;
+                background: linear-gradient(135deg, #ff6b6b, #ff5252);
+                color: white;
+                border: none;
+                border-radius: 15px;
+                font-size: 18px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            
+            .checkout-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 10px 25px rgba(255, 107, 107, 0.3);
+            }
+            
+            .checkout-btn:disabled {
+                background: #ccc;
+                cursor: not-allowed;
+                transform: none;
+                box-shadow: none;
+            }
+            
+            .loading {
+                display: inline-block;
+                width: 20px;
+                height: 20px;
+                border: 2px solid #ffffff;
+                border-radius: 50%;
+                border-top-color: transparent;
+                animation: spin 1s ease-in-out infinite;
+            }
+            
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+            
+            .back-btn {
+                background: rgba(255, 255, 255, 0.2);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                padding: 10px 20px;
+                border-radius: 25px;
+                cursor: pointer;
+                font-size: 14px;
+                text-decoration: none;
+                display: inline-block;
+                margin-bottom: 20px;
+                transition: all 0.3s ease;
+            }
+            
+            .back-btn:hover {
+                background: rgba(255, 255, 255, 0.3);
+            }
+        </style>
+    </head>
+    <body>
+        <header class="header">
+            <div class="logo">小红书插件</div>
+            <div class="user-info">
+                <span id="username">用户名</span>
+                <div class="user-avatar" id="avatar">U</div>
+                <button class="logout-btn" onclick="logout()">退出登录</button>
+            </div>
+        </header>
+        
+        <div class="container">
+            <a href="/dashboard" class="back-btn">← 返回仪表板</a>
+            
+            <div class="card">
+                <h2>积分充值</h2>
+                
+                <div class="current-points">
+                    <div class="points-display" id="current-points">0</div>
+                    <div class="points-label">当前积分余额</div>
+                </div>
+                
+                <div class="packages">
+                    <div class="package" data-amount="10" data-points="100">
+                        <div class="price"><span class="currency">¥</span>10</div>
+                        <div class="points">100 积分</div>
+                        <div class="description">适合试用用户</div>
+                    </div>
+                    
+                    <div class="package popular" data-amount="50" data-points="500">
+                        <div class="price"><span class="currency">¥</span>50</div>
+                        <div class="points">500 积分</div>
+                        <div class="description">最受欢迎</div>
+                    </div>
+                    
+                    <div class="package" data-amount="100" data-points="1000">
+                        <div class="price"><span class="currency">¥</span>100</div>
+                        <div class="points">1000 积分</div>
+                        <div class="description">性价比最高</div>
+                    </div>
+                </div>
+                
+                <div class="custom-amount">
+                    <h3>自定义金额</h3>
+                    <div class="amount-input">
+                        <input type="number" id="custom-amount" placeholder="输入充值金额" min="1" max="1000">
+                        <span>元 = <span class="points-preview" id="custom-points">0</span> 积分</span>
+                    </div>
+                </div>
+                
+                <button class="checkout-btn" id="checkout-btn" onclick="checkout()">
+                    立即充值
+                </button>
+            </div>
+        </div>
+        
+        <script>
+            const API_BASE = '/api';
+            let selectedPackage = null;
+            
+            // 检查登录状态
+            async function checkAuth() {
+                const token = localStorage.getItem('token');
+                const user = localStorage.getItem('user');
+                
+                if (!token || !user) {
+                    window.location.href = '/';
+                    return;
+                }
+                
+                try {
+                    const data = await apiRequest(API_BASE + '/auth/me');
+                    
+                    if (data && data.success) {
+                        const userData = data.user;
+                        localStorage.setItem('user', JSON.stringify(userData));
+                        
+                        document.getElementById('username').textContent = userData.username;
+                        document.getElementById('avatar').textContent = userData.username.charAt(0).toUpperCase();
+                        
+                        // 获取用户积分
+                        await loadUserPoints();
+                    } else {
+                        window.location.href = '/';
+                    }
+                } catch (error) {
+                    console.error('认证检查失败:', error);
+                    window.location.href = '/';
+                }
+            }
+            
+            // 加载用户积分
+            async function loadUserPoints() {
+                try {
+                    const data = await apiRequest(API_BASE + '/points/stats');
+                    if (data && data.success) {
+                        document.getElementById('current-points').textContent = data.points.current;
+                    }
+                } catch (error) {
+                    console.error('获取积分失败:', error);
+                }
+            }
+            
+            // API请求封装
+            async function apiRequest(url, options = {}) {
+                const token = localStorage.getItem('token');
+                
+                const defaultOptions = {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': token ? 'Bearer ' + token : ''
+                    }
+                };
+                
+                const mergedOptions = {
+                    ...defaultOptions,
+                    ...options,
+                    headers: {
+                        ...defaultOptions.headers,
+                        ...options.headers
+                    }
+                };
+                
+                try {
+                    const response = await fetch(url, mergedOptions);
+                    
+                    if (response.status === 401) {
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('user');
+                        window.location.href = '/';
+                        return null;
+                    }
+                    
+                    return await response.json();
+                } catch (error) {
+                    console.error('API请求失败:', error);
+                    throw error;
+                }
+            }
+            
+            // 选择套餐
+            document.querySelectorAll('.package').forEach(pkg => {
+                pkg.addEventListener('click', () => {
+                    document.querySelectorAll('.package').forEach(p => p.classList.remove('selected'));
+                    pkg.classList.add('selected');
+                    selectedPackage = {
+                        amount: parseInt(pkg.dataset.amount),
+                        points: parseInt(pkg.dataset.points)
+                    };
+                    document.getElementById('custom-amount').value = '';
+                    updateCustomPoints();
+                });
+            });
+            
+            // 自定义金额输入
+            document.getElementById('custom-amount').addEventListener('input', (e) => {
+                const amount = parseInt(e.target.value) || 0;
+                document.getElementById('custom-points').textContent = amount * 10;
+                
+                if (amount > 0) {
+                    document.querySelectorAll('.package').forEach(p => p.classList.remove('selected'));
+                    selectedPackage = {
+                        amount: amount,
+                        points: amount * 10
+                    };
+                } else {
+                    selectedPackage = null;
+                }
+            });
+            
+            // 更新自定义积分显示
+            function updateCustomPoints() {
+                const amount = parseInt(document.getElementById('custom-amount').value) || 0;
+                document.getElementById('custom-points').textContent = amount * 10;
+            }
+            
+            // 结账
+            async function checkout() {
+                if (!selectedPackage) {
+                    alert('请选择充值套餐或输入自定义金额');
+                    return;
+                }
+                
+                const btn = document.getElementById('checkout-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="loading"></span> 处理中...';
+                
+                try {
+                    const response = await apiRequest(API_BASE + '/pay/checkout', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            amount: selectedPackage.amount,
+                            points: selectedPackage.points
+                        })
+                    });
+                    
+                    if (response && response.success) {
+                        alert('充值成功！');
+                        setTimeout(() => {
+                            window.location.href = '/dashboard';
+                        }, 1500);
+                    } else {
+                        alert(response?.error || '充值失败，请稍后重试');
+                    }
+                } catch (error) {
+                    console.error('充值失败:', error);
+                    alert('网络错误，请稍后重试');
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = '立即充值';
+                }
+            }
+            
+            // 退出登录
+            function logout() {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/';
+            }
+            
+            // 页面加载时检查登录状态
+            window.addEventListener('DOMContentLoaded', checkAuth);
         </script>
     </body>
     </html>
@@ -911,6 +1577,7 @@ app.get('/dashboard', async (req, res) => {
                 <div class="action-buttons">
                     <a href="#" class="btn btn-primary" onclick="recharge()">充值积分</a>
                     <a href="#" class="btn btn-secondary" onclick="viewRecords()">查看记录</a>
+                    <a href="#" class="btn btn-secondary" onclick="connectPlugin()">连接插件</a>
                 </div>
             </div>
             
@@ -1031,12 +1698,23 @@ app.get('/dashboard', async (req, res) => {
             
             // 充值积分
             function recharge() {
-                alert('充值功能开发中，敬请期待！');
+                window.location.href = '/recharge';
             }
             
             // 查看记录
             function viewRecords() {
                 alert('记录查看功能开发中，敬请期待！');
+            }
+            
+            // 连接插件
+            function connectPlugin() {
+                const token = localStorage.getItem('token');
+                if (token) {
+                    const bridgeUrl = '/ext/bridge?token=' + encodeURIComponent(token);
+                    window.open(bridgeUrl, '_blank');
+                } else {
+                    alert('请先登录');
+                }
             }
             
             // 退出登录
