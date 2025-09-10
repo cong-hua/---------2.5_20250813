@@ -4949,13 +4949,13 @@ function setupPointsRefresh() {
 
 // 打开登录页面
 function openLogin() {
-  const loginUrl = 'https://xhspay.zeabur.app/login.html';
+  const loginUrl = 'https://xhspay.zeabur.app/';
   window.open(loginUrl, '_blank');
 }
 
 // 打开网站
 function openWebsite() {
-  const websiteUrl = 'https://xhspay.zeabur.app/user.html';
+  const websiteUrl = 'https://xhspay.zeabur.app/dashboard';
   window.open(websiteUrl, '_blank');
 }
 

@@ -156,11 +156,15 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: '用户名和密码不能为空' });
     }
 
+    console.log('登录请求:', { username, passwordLength: password?.length });
+
     // 验证用户
     const user = await UserService.validateUser(username, password);
+    console.log('用户验证结果:', { userId: user?._id, username: user?.username });
     
     // 获取用户积分统计
     const pointsStats = await UserService.getUserPointsStats(user._id);
+    console.log('积分统计获取成功');
 
     // 生成JWT令牌
     const token = jwt.sign(
@@ -168,6 +172,8 @@ app.post('/api/auth/login', async (req, res) => {
       process.env.JWT_SECRET || 'default_secret',
       { expiresIn: '7d' }
     );
+
+    console.log('登录成功，生成token');
 
     res.json({
       success: true,
@@ -183,6 +189,7 @@ app.post('/api/auth/login', async (req, res) => {
     });
   } catch (error) {
     console.error('用户登录失败:', error);
+    console.error('错误堆栈:', error.stack);
     if (error.message === '用户不存在' || error.message === '密码错误') {
       res.status(400).json({ error: error.message });
     } else {
@@ -264,12 +271,6 @@ app.post('/api/points/recharge', authenticateToken, async (req, res) => {
     // 生成订单ID
     const orderId = `XHS_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
 
-    // 创建充值记录
-    const [result] = await pool.execute(
-      'INSERT INTO recharge_records (user_id, order_id, amount, points, exchange_rate, payment_method) VALUES (?, ?, ?, ?, ?, ?)',
-      [userId, orderId, amount, points, exchangeRate, paymentMethod]
-    );
-
     // 创建支付订单
     const orderData = paymentFactory.formatOrderData({
       orderId,
@@ -335,44 +336,12 @@ app.get('/api/points/records', authenticateToken, async (req, res) => {
   try {
     const { type = 'all', page = 1, limit = 20 } = req.query;
     const userId = req.user.userId;
-    const offset = (page - 1) * limit;
-
-    let query = '';
-    let params = [userId];
-
-    if (type === 'recharge') {
-      query = `
-        SELECT 'recharge' as type, order_id as id, amount as amount, points, payment_method, payment_status, created_at
-        FROM recharge_records 
-        WHERE user_id = ? 
-        ORDER BY created_at DESC 
-        LIMIT ? OFFSET ?
-      `;
-      params.push(parseInt(limit), parseInt(offset));
-    } else if (type === 'deduction') {
-      query = `
-        SELECT 'deduction' as type, id, points_deducted as amount, action_type, action_description, note_id, created_at
-        FROM points_deduction_records 
-        WHERE user_id = ? 
-        ORDER BY created_at DESC 
-        LIMIT ? OFFSET ?
-      `;
-      params.push(parseInt(limit), parseInt(offset));
-    } else {
-      // 获取所有记录
-      query = `
-        (SELECT 'recharge' as type, order_id as id, amount, points, payment_method as extra_info, payment_status as status, created_at
-         FROM recharge_records WHERE user_id = ?)
-        UNION ALL
-        (SELECT 'deduction' as type, id, points_deducted as amount, points_deducted as points, action_type as extra_info, 'completed' as status, created_at
-         FROM points_deduction_records WHERE user_id = ?)
-        ORDER BY created_at DESC 
-        LIMIT ? OFFSET ?
-      `;
-      params = [userId, userId, parseInt(limit), parseInt(offset)];
-    }
-
-    const [records] = await pool.execute(query, params);
+    
+    // 使用PointsService获取积分记录
+    const PointsService = require('./services/PointsService');
+    const pointsService = new PointsService();
+    
+    const records = await pointsService.getUserRecords(userId, type, page, limit);
 
     res.json({
       success: true,
@@ -530,22 +499,16 @@ app.get('/api/config', async (req, res) => {
 // 积分查询别名 - 复用现有的 /api/points/info
 app.get('/api/points', authenticateToken, async (req, res) => {
   try {
-    const [users] = await pool.execute(
-      'SELECT current_points, total_consumed_points, total_recharged_points FROM users WHERE id = ?',
-      [req.user.userId]
-    );
-
-    if (users.length === 0) {
-      return res.status(404).json({ error: '用户不存在' });
-    }
-
-    const user = users[0];
+    // 使用UserService获取用户积分
+    const currentPoints = await UserService.getUserPoints(req.user.userId);
+    const pointsStats = await UserService.getUserPointsStats(req.user.userId);
+    
     res.json({
       success: true,
       points: {
-        current: user.current_points,
-        totalConsumed: user.total_consumed_points,
-        totalRecharged: user.total_recharged_points
+        current: currentPoints,
+        totalConsumed: pointsStats.totalConsumed || 0,
+        totalRecharged: pointsStats.totalEarned || 0
       }
     });
   } catch (error) {
@@ -564,68 +527,25 @@ app.post('/api/points/use', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: '扣费积分必须大于0' });
     }
 
-    const connection = await pool.getConnection();
-    await connection.beginTransaction();
+    // 获取当前积分
+    const beforePoints = await UserService.getUserPoints(userId);
 
-    try {
-      // 检查用户积分
-      const [users] = await connection.execute(
-        'SELECT current_points FROM users WHERE id = ? FOR UPDATE',
-        [userId]
-      );
+    // 扣除积分
+    const afterPoints = await UserService.deductPoints(userId, points, actionType, description);
 
-      if (users.length === 0) {
-        await connection.rollback();
-        return res.status(404).json({ error: '用户不存在' });
-      }
-
-      const user = users[0];
-      if (user.current_points < points) {
-        await connection.rollback();
-        return res.status(400).json({ error: '积分不足' });
-      }
-
-      // 扣减积分
-      const [result] = await connection.execute(
-        'UPDATE users SET current_points = current_points - ?, total_consumed_points = total_consumed_points + ? WHERE id = ?',
-        [points, points, userId]
-      );
-
-      // 记录积分消费
-      await connection.execute(
-        'INSERT INTO points_deduction_records (user_id, points, action_type, description, note_id) VALUES (?, ?, ?, ?, ?)',
-        [userId, points, actionType, description, null]
-      );
-
-      // 记录积分日志
-      await connection.execute(
-        'INSERT INTO points_logs (user_id, points_change, change_type, description) VALUES (?, ?, ?, ?)',
-        [userId, -points, 'deduct', description]
-      );
-
-      await connection.commit();
-
-      // 返回扣减后的积分信息
-      const [updatedUser] = await pool.execute(
-        'SELECT current_points FROM users WHERE id = ?',
-        [userId]
-      );
-
-      res.json({
-        success: true,
-        beforePoints: user.current_points,
-        afterPoints: updatedUser[0].current_points,
-        deductedPoints: points
-      });
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
+    res.json({
+      success: true,
+      beforePoints,
+      afterPoints,
+      deductedPoints: points
+    });
   } catch (error) {
     console.error('积分消费失败:', error);
-    res.status(500).json({ error: '服务器内部错误' });
+    if (error.message === '积分不足' || error.message === '用户不存在') {
+      res.status(400).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: '服务器内部错误' });
+    }
   }
 });
 
@@ -1434,11 +1354,6 @@ app.use((error, req, res, next) => {
   res.status(500).json({ error: '服务器内部错误' });
 });
 
-// 404处理
-app.use((req, res) => {
-  res.status(404).json({ error: '接口不存在' });
-});
-
 // 健康检查 endpoint
 app.get('/health', (req, res) => {
   const dbStatus = global.mongoConnected ? 'connected' : 'disconnected';
@@ -1449,6 +1364,11 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     port: PORT
   });
+});
+
+// 404处理
+app.use((req, res) => {
+  res.status(404).json({ error: '接口不存在' });
 });
 
 // 启动服务器
