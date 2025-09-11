@@ -285,11 +285,13 @@ app.post('/api/auth/login', async (req, res) => { // 临时移除限流中间件
       }
     });
   } catch (error) {
+    // 避免引用未定义变量，优先从请求体读取用户名用于日志
+    const reqUsername = (req && req.body && req.body.username) ? req.body.username : undefined;
     logger.error('用户登录失败', { 
-      username,
-      errorType: error.constructor.name,
-      errorMessage: error.message,
-      errorStack: error.stack,
+      username: reqUsername,
+      errorType: error?.constructor?.name,
+      errorMessage: error?.message,
+      errorStack: error?.stack,
       dbConnected: global.mongoConnected
     });
     
