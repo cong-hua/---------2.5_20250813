@@ -85,6 +85,35 @@ class UserService {
     // 确保注册奖励
     await this.ensureRegistrationBonus(user._id);
 
+    // MVP 登录补偿：若当前积分仍为0，则发放一次性补偿，避免历史用户无积分可用
+    try {
+      if (user.points === 0) {
+        const existed = await PointsRecord.exists({
+          userId: user._id,
+          actionType: 'admin_adjustment',
+          description: { $regex: '登录补偿', $options: 'i' }
+        });
+        if (!existed) {
+          const bonusPoints = 10;
+          await user.addPoints(bonusPoints);
+          await PointsRecord.create({
+            userId: user._id,
+            points: bonusPoints,
+            type: 'earn',
+            actionType: 'admin_adjustment',
+            description: '登录补偿(MVP)',
+            balance: user.points,
+            metadata: { reason: 'mvp_login_compensation' }
+          });
+          console.log(`MVP登录补偿：为用户(${user.username})发放 ${bonusPoints} 积分。当前积分: ${user.points}`);
+        } else {
+          console.log(`MVP登录补偿：用户(${user.username})已发放过，跳过。`);
+        }
+      }
+    } catch (e) {
+      console.error('登录补偿处理失败：', e);
+    }
+
     console.log('用户验证成功:', user.username, '积分余额:', user.points);
     return user;
   }

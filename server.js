@@ -1412,7 +1412,7 @@ app.get('/recharge', (req, res) => {
         </div>
         
         <script>
-            const API_BASE = '/api';
+            const API_BASE = window.location.origin + '/api';
             let selectedPackage = null;
             
             // 检查登录状态
@@ -2313,9 +2313,10 @@ app.get('/', (req, res) => {
                     const data = await response.json();
                     
                     if (response.ok && data.success) {
-                        localStorage.setItem('token', data.data.accessToken);
-                        localStorage.setItem('refreshToken', data.data.refreshToken);
-                        localStorage.setItem('user', JSON.stringify(data.data.user));
+                        // 后端返回的是顶层 accessToken/refreshToken/user
+                        localStorage.setItem('token', data.accessToken);
+                        localStorage.setItem('refreshToken', data.refreshToken);
+                        localStorage.setItem('user', JSON.stringify(data.user));
                         showAlert('登录成功！正在跳转...', 'success');
                         setTimeout(() => {
                             window.location.href = '/dashboard';
@@ -2374,9 +2375,10 @@ app.get('/', (req, res) => {
                     const data = await response.json();
                     
                     if (response.ok && data.success) {
-                        localStorage.setItem('token', data.data.accessToken);
-                        localStorage.setItem('refreshToken', data.data.refreshToken);
-                        localStorage.setItem('user', JSON.stringify(data.data.user));
+                        // 后端返回的是顶层 accessToken/refreshToken/user
+                        localStorage.setItem('token', data.accessToken);
+                        localStorage.setItem('refreshToken', data.refreshToken);
+                        localStorage.setItem('user', JSON.stringify(data.user));
                         showAlert('注册成功！正在跳转...', 'success');
                         setTimeout(() => {
                             window.location.href = '/dashboard';
