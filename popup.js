@@ -5026,8 +5026,52 @@ async function pollSessionStatus() {
         throw new Error(data.error || '会话状态获取失败');
       }
     } else if (response.status === 401 || response.status === 403) {
-      // 认证失败，清除token
-      console.log('认证失败，清除token');
+      // 认证失败，尝试刷新令牌
+      console.log('认证失败，尝试刷新令牌');
+      updateSyncStatus('refreshing', `尝试刷新令牌 (${response.status})`);
+      
+      const refreshSuccess = await refreshAccessToken();
+      if (refreshSuccess) {
+        console.log('令牌刷新成功，重新尝试获取会话状态');
+        updateSyncStatus('syncing', '令牌已刷新，重新同步');
+        
+        // 重新获取会话状态
+        try {
+          const result = await chrome.storage.local.get(['authToken']);
+          const newAuthToken = result.authToken;
+          
+          if (newAuthToken) {
+            const retryResponse = await fetch('https://xhspay.zeabur.app/api/session/status', {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${newAuthToken}`,
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            if (retryResponse.ok) {
+              const retryData = await retryResponse.json();
+              if (retryData.success) {
+                updateLoginStatusUI(true);
+                updatePointsDisplay(retryData.session.points);
+                updateAuthStatusDisplay(retryData.session.auth);
+                adjustPollingInterval(retryData.session.auth.timeUntilExpiry);
+                await chrome.storage.local.set({
+                  sessionData: retryData.session,
+                  lastSessionUpdate: Date.now()
+                });
+                updateSyncStatus('online', `同步于 ${new Date().toLocaleTimeString()}`);
+                return; // 成功刷新，直接返回
+              }
+            }
+          }
+        } catch (retryError) {
+          console.error('刷新后重试失败:', retryError);
+        }
+      }
+      
+      // 刷新失败，处理认证失败
+      console.log('令牌刷新失败，清除token');
       updateSyncStatus('offline', `认证失败 (${response.status})`);
       await handleAuthFailure();
     } else {
@@ -5160,6 +5204,43 @@ function updateAuthStatusDisplay(auth) {
   statusElement.title = `Token过期时间: ${new Date(auth.exp * 1000).toLocaleString()}`;
 }
 
+// 令牌刷新函数
+async function refreshAccessToken() {
+  try {
+    const result = await chrome.storage.local.get(['refreshToken']);
+    const refreshToken = result.refreshToken;
+    
+    if (!refreshToken) {
+      console.log('没有刷新令牌，需要重新登录');
+      return false;
+    }
+    
+    const response = await fetch('https://xhspay.zeabur.app/api/auth/refresh', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ refreshToken })
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success) {
+        // 保存新的访问令牌
+        await chrome.storage.local.set({ authToken: data.data.accessToken });
+        console.log('访问令牌刷新成功');
+        return true;
+      }
+    }
+    
+    console.log('刷新令牌失败，需要重新登录');
+    return false;
+  } catch (error) {
+    console.error('刷新访问令牌时出错:', error);
+    return false;
+  }
+}
+
 async function handleAuthFailure() {
   // 处理认证失败
   await chrome.storage.local.remove(['authToken', 'sessionData']);
@@ -5197,7 +5278,7 @@ function openWebsite() {
 async function logout() {
   try {
     // 清除本地存储
-    await chrome.storage.local.remove(['authToken', 'pointsData']);
+    await chrome.storage.local.remove(['authToken', 'refreshToken', 'pointsData', 'sessionData']);
     
     // 通知background
     chrome.runtime.sendMessage({

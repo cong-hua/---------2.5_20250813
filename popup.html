@@ -1150,6 +1150,14 @@
       background: #0284c7;
       animation: pulse 1.5s infinite;
     }
+    .auth-status-indicator.refreshing {
+      background: #fef3c7;
+      color: #d97706;
+    }
+    .auth-status-indicator.refreshing .status-dot {
+      background: #d97706;
+      animation: pulse 1s infinite;
+    }
     @keyframes pulse {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.3; }

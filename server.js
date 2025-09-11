@@ -76,6 +76,33 @@ app.use(cors({
   },
   credentials: false // 方案B不需要credentials
 }));
+
+// 安全头部中间件
+app.use((req, res, next) => {
+  // CSP 配置
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: https:; " +
+    "connect-src 'self' https://xhspay.zeabur.app chrome-extension://*; " +
+    "font-src 'self' data:; " +
+    "object-src 'none'; " +
+    "base-uri 'self'; " +
+    "form-action 'self'; " +
+    "frame-ancestors 'none';"
+  );
+  
+  // 其他安全头部
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -150,17 +177,26 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       password
     });
 
-    // 生成JWT令牌
-    const token = jwt.sign(
+    // 生成访问令牌（短期时效）
+    const accessToken = jwt.sign(
       { userId: user._id, username: user.username },
       process.env.JWT_SECRET || 'default_secret',
-      { expiresIn: '7d' }
+      { expiresIn: '2h' } // 2小时过期
+    );
+    
+    // 生成刷新令牌（长期时效）
+    const refreshToken = jwt.sign(
+      { userId: user._id, username: user.username, type: 'refresh' },
+      process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || 'default_secret_refresh',
+      { expiresIn: '7d' } // 7天过期
     );
 
     res.status(201).json({
       success: true,
       message: '用户注册成功',
-      token,
+      accessToken,
+      refreshToken,
+      expiresIn: 7200, // 2小时，单位秒
       user: {
         id: user._id,
         username: user.username,
@@ -206,11 +242,18 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     const pointsStats = { totalEarned: 0, totalConsumed: 0, recordCount: 0 };
     console.log('登录成功，积分统计将延迟加载');
 
-    // 生成JWT令牌
-    const token = jwt.sign(
+    // 生成访问令牌（短期时效）
+    const accessToken = jwt.sign(
       { userId: user._id, username: user.username },
       process.env.JWT_SECRET || 'default_secret',
-      { expiresIn: '7d' }
+      { expiresIn: '2h' } // 2小时过期
+    );
+    
+    // 生成刷新令牌（长期时效）
+    const refreshToken = jwt.sign(
+      { userId: user._id, username: user.username, type: 'refresh' },
+      process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || 'default_secret_refresh',
+      { expiresIn: '7d' } // 7天过期
     );
 
     console.log('登录成功，生成token完成');
@@ -218,7 +261,9 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
     res.json({
       success: true,
-      token,
+      accessToken,
+      refreshToken,
+      expiresIn: 7200, // 2小时，单位秒
       user: {
         id: user._id,
         username: user.username,
@@ -849,12 +894,24 @@ app.get('/ext/bridge', (req, res) => {
         </div>
         
         <script>
-            // 从URL哈希中获取token
-            const token = window.location.hash.substring(1); // 移除#号
+            // 从URL哈希中获取token数据
+            const tokenData = window.location.hash.substring(1); // 移除#号
             
-            if (token) {
-                // 立即清除URL哈希中的token
+            if (tokenData) {
+                // 立即清除URL哈希中的token数据
                 history.pushState('', document.title, window.location.pathname + window.location.search);
+                
+                // 解析token数据
+                let accessToken, refreshToken;
+                try {
+                    const parsedData = JSON.parse(decodeURIComponent(tokenData));
+                    accessToken = parsedData.accessToken;
+                    refreshToken = parsedData.refreshToken;
+                } catch (e) {
+                    // 如果解析失败，可能是旧格式的token
+                    accessToken = decodeURIComponent(tokenData);
+                    refreshToken = null;
+                }
                 
                 // 不保存token到localStorage，直接传递给插件
                 try {
@@ -862,10 +919,17 @@ app.get('/ext/bridge', (req, res) => {
                     
                     if (window.chrome && window.chrome.runtime) {
                         // 方法1：保存到Chrome存储（插件轮询时会检查）
-                        chrome.storage.local.set({ 
-                            authToken: token,
+                        const storageData = {
+                            authToken: accessToken,
                             authTimestamp: Date.now()
-                        }, () => {
+                        };
+                        
+                        // 如果有refresh token，也保存起来
+                        if (refreshToken) {
+                            storageData.refreshToken = refreshToken;
+                        }
+                        
+                        chrome.storage.local.set(storageData, () => {
                             console.log('Token已传递到Chrome存储');
                             document.getElementById('status').textContent = '登录状态已同步到插件！';
                         });
@@ -873,11 +937,18 @@ app.get('/ext/bridge', (req, res) => {
                         // 方法2：向background script发送消息
                         setTimeout(() => {
                             try {
-                                chrome.runtime.sendMessage('', {
+                                const messageData = {
                                     type: 'SET_AUTH_TOKEN',
-                                    token: token,
+                                    token: accessToken,
                                     timestamp: Date.now()
-                                }, response => {
+                                };
+                                
+                                // 如果有refresh token，也一起发送
+                                if (refreshToken) {
+                                    messageData.refreshToken = refreshToken;
+                                }
+                                
+                                chrome.runtime.sendMessage('', messageData, response => {
                                     if (chrome.runtime.lastError) {
                                         console.log('Background script连接失败，使用storage方法');
                                     } else if (response && response.success) {
@@ -1500,6 +1571,7 @@ app.get('/recharge', (req, res) => {
                 console.log('开始退出登录...');
                 try {
                     localStorage.removeItem('token');
+                    localStorage.removeItem('refreshToken');
                     localStorage.removeItem('user');
                     console.log('已清除本地存储，跳转到登录页...');
                     window.location.href = '/';
@@ -1828,6 +1900,7 @@ app.get('/dashboard', async (req, res) => {
                 } catch (error) {
                     console.error('Token验证失败:', error);
                     localStorage.removeItem('token');
+                    localStorage.removeItem('refreshToken');
                     localStorage.removeItem('user');
                     window.location.href = '/';
                 }
@@ -1863,8 +1936,14 @@ app.get('/dashboard', async (req, res) => {
             // 连接插件
             function connectPlugin() {
                 const token = localStorage.getItem('token');
+                const refreshToken = localStorage.getItem('refreshToken');
                 if (token) {
-                    const bridgeUrl = '/ext/bridge#' + encodeURIComponent(token);
+                    // 将access token和refresh token组合传递
+                    const tokenData = JSON.stringify({
+                        accessToken: token,
+                        refreshToken: refreshToken
+                    });
+                    const bridgeUrl = '/ext/bridge#' + encodeURIComponent(tokenData);
                     window.open(bridgeUrl, '_blank');
                 } else {
                     alert('请先登录');
@@ -1877,6 +1956,7 @@ app.get('/dashboard', async (req, res) => {
                 console.log('开始退出登录...');
                 try {
                     localStorage.removeItem('token');
+                    localStorage.removeItem('refreshToken');
                     localStorage.removeItem('user');
                     console.log('已清除本地存储，跳转到登录页...');
                     window.location.href = '/';
@@ -2221,8 +2301,9 @@ app.get('/', (req, res) => {
                     const data = await response.json();
                     
                     if (response.ok && data.success) {
-                        localStorage.setItem('token', data.token);
-                        localStorage.setItem('user', JSON.stringify(data.user));
+                        localStorage.setItem('token', data.data.accessToken);
+                        localStorage.setItem('refreshToken', data.data.refreshToken);
+                        localStorage.setItem('user', JSON.stringify(data.data.user));
                         showAlert('登录成功！正在跳转...', 'success');
                         setTimeout(() => {
                             window.location.href = '/dashboard';
@@ -2281,8 +2362,9 @@ app.get('/', (req, res) => {
                     const data = await response.json();
                     
                     if (response.ok && data.success) {
-                        localStorage.setItem('token', data.token);
-                        localStorage.setItem('user', JSON.stringify(data.user));
+                        localStorage.setItem('token', data.data.accessToken);
+                        localStorage.setItem('refreshToken', data.data.refreshToken);
+                        localStorage.setItem('user', JSON.stringify(data.data.user));
                         showAlert('注册成功！正在跳转...', 'success');
                         setTimeout(() => {
                             window.location.href = '/dashboard';

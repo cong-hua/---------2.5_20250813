@@ -23,7 +23,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await stopPublishing();
         return { success: true };
       case 'SET_AUTH_TOKEN':
-        await handleSetAuthToken(message.token);
+        await handleSetAuthToken(message.token, message.refreshToken);
         return { success: true };
       case 'GET_AUTH_TOKEN':
         const token = await getAuthToken();
@@ -1138,10 +1138,17 @@ async function deductPointsForPublish(noteData) {
 // ==================== MVP Token管理功能 ====================
 
 // 设置认证token
-async function handleSetAuthToken(token) {
+async function handleSetAuthToken(token, refreshToken = null) {
   try {
-    await chrome.storage.local.set({ authToken: token });
-    console.log('AuthToken已保存');
+    const storageData = { authToken: token };
+    
+    // 如果有refresh token，也保存起来
+    if (refreshToken) {
+      storageData.refreshToken = refreshToken;
+    }
+    
+    await chrome.storage.local.set(storageData);
+    console.log('AuthToken已保存', refreshToken ? '(包含refreshToken)' : '');
     
     // 通知popup更新登录状态
     chrome.runtime.sendMessage({
@@ -1167,7 +1174,7 @@ async function getAuthToken() {
 // 清除认证token
 async function clearAuthToken() {
   try {
-    await chrome.storage.local.remove(['authToken']);
+    await chrome.storage.local.remove(['authToken', 'refreshToken']);
     console.log('AuthToken已清除');
     
     // 通知popup更新登录状态
