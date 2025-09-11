@@ -806,32 +806,61 @@ app.get('/ext/bridge', (req, res) => {
                 
                 // 尝试发送token到插件
                 try {
+                    console.log('尝试与插件通信...');
                     if (window.chrome && window.chrome.runtime) {
-                        // 尝试常见的插件ID格式
-                        const possibleIds = [
-                            ' YOUR_EXTENSION_ID', // 需要替换为实际插件ID
-                            'chrome-extension://' + window.location.hostname.split('.')[0] + '//_generated_background_page.html'
-                        ];
+                        // 方法1：直接保存到Chrome存储（popup会检查这里）
+                        chrome.storage.local.set({ 
+                            authToken: token,
+                            authTimestamp: Date.now()
+                        }, () => {
+                            console.log('Token已保存到Chrome存储');
+                            document.getElementById('status').textContent = '登录状态已同步到插件！';
+                        });
                         
-                        // 尝试发送消息到插件
-                        possibleIds.forEach(id => {
+                        // 方法2：尝试向background script发送消息
+                        setTimeout(() => {
                             try {
-                                chrome.runtime.sendMessage(id, {
+                                chrome.runtime.sendMessage('', {
                                     type: 'SET_AUTH_TOKEN',
-                                    token: token
+                                    token: token,
+                                    timestamp: Date.now()
+                                }, response => {
+                                    if (chrome.runtime.lastError) {
+                                        console.log('无法直接连接到background script，使用storage方法');
+                                    } else if (response && response.success) {
+                                        console.log('插件响应成功');
+                                        document.getElementById('status').textContent = '插件连接成功！';
+                                    }
                                 });
                             } catch (e) {
-                                // 忽略错误，继续尝试下一个ID
+                                console.log('直接消息发送失败，使用storage方法');
                             }
-                        });
+                        }, 100);
                         
-                        // 也尝试通过storage API同步
-                        chrome.storage.local.set({ authToken: token }, () => {
-                            console.log('Token已保存到Chrome存储');
-                        });
+                        // 方法3：设置全局变量作为备用
+                        window.xhsAuthToken = token;
+                        window.xhsAuthTimestamp = Date.now();
+                        
+                        // 方法4：触发自定义事件
+                        window.dispatchEvent(new CustomEvent('xhsAuthUpdate', {
+                            detail: { token, timestamp: Date.now() }
+                        }));
+                        
+                        // 方法5：使用postMessage与其他窗口通信
+                        window.postMessage({
+                            type: 'XHS_AUTH_UPDATE',
+                            token: token,
+                            timestamp: Date.now()
+                        }, '*');
+                        
+                        console.log('所有插件通信方法已执行');
+                    } else {
+                        console.log('Chrome runtime API不可用');
+                        document.getElementById('status').textContent = '请确保在Chrome浏览器中运行';
                     }
                 } catch (error) {
-                    console.log('插件通信失败，但不影响使用');
+                    console.error('插件通信失败:', error);
+                    document.getElementById('status').textContent = '通信失败，但token已保存';
                 }
                 
                 // 更新状态

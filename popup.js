@@ -4818,6 +4818,26 @@ async function initMVPFeatures() {
       updateLoginStatusUI(message.data.isLoggedIn);
     }
   });
+  
+  // 监听Chrome存储变化，检测token更新
+  chrome.storage.onChanged.addListener((changes, namespace) => {
+    if (namespace === 'local' && changes.authToken) {
+      const oldValue = changes.authToken.oldValue;
+      const newValue = changes.authToken.newValue;
+      
+      console.log('检测到authToken变化:', { oldValue: !!oldValue, newValue: !!newValue });
+      
+      // 如果token被设置
+      if (newValue && !oldValue) {
+        updateLoginStatusUI(true);
+        loadPoints();
+      } 
+      // 如果token被清除
+      else if (!newValue && oldValue) {
+        updateLoginStatusUI(false);
+      }
+    }
+  });
 }
 
 // 检查登录状态
