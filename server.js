@@ -1114,6 +1114,56 @@ app.get('/recharge', (req, res) => {
                 font-weight: 600;
             }
             
+            .payment-method {
+                margin-top: 40px;
+            }
+            
+            .payment-method h3 {
+                margin-bottom: 20px;
+                color: #333;
+                font-size: 18px;
+            }
+            
+            .payment-options {
+                display: flex;
+                gap: 20px;
+                justify-content: center;
+            }
+            
+            .payment-option {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 15px 25px;
+                border: 2px solid #e0e0e0;
+                border-radius: 15px;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            
+            .payment-option:hover {
+                border-color: #ff6b6b;
+                background: rgba(255, 107, 107, 0.05);
+            }
+            
+            .payment-option input[type="radio"] {
+                margin: 0;
+            }
+            
+            .payment-option:has(input:checked) {
+                border-color: #ff6b6b;
+                background: rgba(255, 107, 107, 0.1);
+            }
+            
+            .payment-icon {
+                font-size: 24px;
+            }
+            
+            .payment-name {
+                font-weight: 500;
+                color: #333;
+            }
+            
             .checkout-btn {
                 width: 100%;
                 padding: 18px;
@@ -1218,6 +1268,22 @@ app.get('/recharge', (req, res) => {
                     <div class="amount-input">
                         <input type="number" id="custom-amount" placeholder="输入充值金额" min="1" max="1000">
                         <span>元 = <span class="points-preview" id="custom-points">0</span> 积分</span>
+                    </div>
+                </div>
+                
+                <div class="payment-method">
+                    <h3>支付方式</h3>
+                    <div class="payment-options">
+                        <label class="payment-option">
+                            <input type="radio" name="paymentMethod" value="alipay" checked>
+                            <span class="payment-icon">💰</span>
+                            <span class="payment-name">支付宝</span>
+                        </label>
+                        <label class="payment-option">
+                            <input type="radio" name="paymentMethod" value="wechat">
+                            <span class="payment-icon">💚</span>
+                            <span class="payment-name">微信支付</span>
+                        </label>
                     </div>
                 </div>
                 
@@ -1359,16 +1425,25 @@ app.get('/recharge', (req, res) => {
                 btn.innerHTML = '<span class="loading"></span> 处理中...';
                 
                 try {
-                    const response = await apiRequest(API_BASE + '/pay/checkout', {
+                    const paymentMethod = document.querySelector('input[name="paymentMethod"]:checked').value;
+                    const response = await apiRequest(API_BASE + '/points/recharge', {
                         method: 'POST',
                         body: JSON.stringify({
                             amount: selectedPackage.amount,
-                            points: selectedPackage.points
+                            paymentMethod: paymentMethod
                         })
                     });
                     
                     if (response && response.success) {
-                        alert('充值成功！');
+                        // 如果返回了支付URL，跳转到支付页面
+                        if (response.paymentUrl) {
+                            window.location.href = response.paymentUrl;
+                        } else if (response.qrCode) {
+                            // 显示二维码支付
+                            alert('请扫描二维码完成支付');
+                        } else {
+                            alert('充值订单创建成功！');
+                        }
                         setTimeout(() => {
                             window.location.href = '/dashboard';
                         }, 1500);
