@@ -24,7 +24,14 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrcAttr: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https:"],
+      baseUri: ["'self'"],
+      fontSrc: ["'self'", "https:", "data:"],
+      formAction: ["'self'"],
+      frameAncestors: ["'self'"],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: [],
     },
   },
 }));
@@ -1350,6 +1357,7 @@ app.get('/recharge', (req, res) => {
             
             // 退出登录
             function logout() {
+                console.log('Logout function called');
                 console.log('开始退出登录...');
                 try {
                     localStorage.removeItem('token');
@@ -1726,6 +1734,7 @@ app.get('/dashboard', async (req, res) => {
             
             // 退出登录
             function logout() {
+                console.log('Logout function called');
                 console.log('开始退出登录...');
                 try {
                     localStorage.removeItem('token');
@@ -1951,14 +1960,14 @@ app.get('/', (req, res) => {
             </div>
             <div class="form-container">
                 <div class="tabs">
-                    <button class="tab active" onclick="switchTab('login')">登录</button>
-                    <button class="tab" onclick="switchTab('register')">注册</button>
+                    <button class="tab active" id="login-tab">登录</button>
+                    <button class="tab" id="register-tab">注册</button>
                 </div>
                 
                 <div class="alert" id="alert"></div>
                 
                 <!-- 登录表单 -->
-                <form class="form active" id="login-form" onsubmit="return handleLogin(event)">
+                <form class="form active" id="login-form">
                     <div class="form-group">
                         <label>用户名</label>
                         <input type="text" id="login-username" required minlength="3">
@@ -1971,7 +1980,7 @@ app.get('/', (req, res) => {
                 </form>
                 
                 <!-- 注册表单 -->
-                <form class="form" id="register-form" onsubmit="return handleRegister(event)">
+                <form class="form" id="register-form">
                     <div class="form-group">
                         <label>用户名</label>
                         <input type="text" id="register-username" required minlength="3">
@@ -1991,6 +2000,28 @@ app.get('/', (req, res) => {
 
         <script>
             const API_BASE = '/api';
+            
+            // 等待DOM加载完成
+            document.addEventListener('DOMContentLoaded', function() {
+                console.log('DOM loaded');
+                // Tab切换事件
+                document.getElementById('login-tab').addEventListener('click', () => switchTab('login'));
+                document.getElementById('register-tab').addEventListener('click', () => switchTab('register'));
+                
+                // 表单提交事件
+                document.getElementById('login-form').addEventListener('submit', function(event) {
+                    event.preventDefault();
+                    handleLogin(event);
+                });
+                document.getElementById('register-form').addEventListener('submit', function(event) {
+                    console.log('Register form submitted');
+                    event.preventDefault();
+                    handleRegister(event);
+                });
+                
+                // 检查是否已登录
+                checkLoginStatus();
+            });
             
             function switchTab(tab) {
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -2072,6 +2103,7 @@ app.get('/', (req, res) => {
             }
             
             async function handleRegister(event) {
+                console.log('handleRegister called');
                 event.preventDefault();
                 
                 const username = document.getElementById('register-username').value;
@@ -2131,7 +2163,7 @@ app.get('/', (req, res) => {
             }
             
             // 检查是否已登录
-            window.addEventListener('DOMContentLoaded', () => {
+            function checkLoginStatus() {
                 const token = localStorage.getItem('token');
                 const user = localStorage.getItem('user');
                 
@@ -2156,7 +2188,7 @@ app.get('/', (req, res) => {
                         localStorage.removeItem('user');
                     });
                 }
-            });
+            }
         </script>
     </body>
     </html>
