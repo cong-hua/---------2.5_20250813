@@ -4883,10 +4883,25 @@ function setupLoginEventListeners() {
   const loginBtn = document.getElementById('loginBtn');
   const userMenuBtn = document.getElementById('userMenuBtn');
   const userDropdown = document.getElementById('userDropdown');
+  const pointsBtn = document.querySelector('.points-btn');
   
   // 登录按钮点击事件
   if (loginBtn) {
     loginBtn.addEventListener('click', openLogin);
+  }
+  
+  // 积分按钮点击事件 - 跳转到充值页面
+  if (pointsBtn) {
+    pointsBtn.addEventListener('click', () => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        // 如果已登录，打开充值页面
+        window.open('https://xhspay.zeabur.app/recharge', '_blank');
+      } else {
+        // 如果未登录，打开登录页面
+        window.open('https://xhspay.zeabur.app/', '_blank');
+      }
+    });
   }
   
   // 用户菜单按钮点击事件
