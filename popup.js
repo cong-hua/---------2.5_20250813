@@ -4819,25 +4819,8 @@ async function initMVPFeatures() {
     }
   });
   
-  // 监听Chrome存储变化，检测token更新
-  chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace === 'local' && changes.authToken) {
-      const oldValue = changes.authToken.oldValue;
-      const newValue = changes.authToken.newValue;
-      
-      console.log('检测到authToken变化:', { oldValue: !!oldValue, newValue: !!newValue });
-      
-      // 如果token被设置
-      if (newValue && !oldValue) {
-        updateLoginStatusUI(true);
-        loadPoints();
-      } 
-      // 如果token被清除
-      else if (!newValue && oldValue) {
-        updateLoginStatusUI(false);
-      }
-    }
-  });
+  // 启动智能轮询机制
+  startAuthPolling();
 }
 
 // 检查登录状态
@@ -4971,15 +4954,231 @@ async function loadPoints() {
   }
 }
 
-// 设置积分定时刷新
-function setupPointsRefresh() {
-  // 每60秒刷新一次积分
-  setInterval(async () => {
+// 智能认证轮询机制
+let pollingInterval = null;
+let currentPollingDelay = 60000; // 默认60秒
+let isPolling = false;
+
+async function startAuthPolling() {
+  console.log('启动智能认证轮询机制');
+  
+  // 立即执行一次检查
+  await pollSessionStatus();
+  
+  // 启动轮询
+  pollingInterval = setInterval(pollSessionStatus, currentPollingDelay);
+}
+
+async function pollSessionStatus() {
+  if (isPolling) {
+    console.log('上次轮询未完成，跳过本次');
+    return;
+  }
+  
+  isPolling = true;
+  
+  // 显示同步状态
+  updateSyncStatus('syncing');
+  
+  try {
     const result = await chrome.storage.local.get(['authToken']);
-    if (result.authToken) {
-      await loadPoints();
+    const authToken = result.authToken;
+    
+    if (!authToken) {
+      // 没有token，设置为未登录状态
+      updateLoginStatusUI(false);
+      updateSyncStatus('offline', '无认证token');
+      return;
     }
-  }, 60000);
+    
+    // 使用统一的状态接口
+    const response = await fetch('https://xhspay.zeabur.app/api/session/status', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      
+      if (data.success) {
+        // 更新用户界面
+        updateLoginStatusUI(true);
+        updatePointsDisplay(data.session.points);
+        updateAuthStatusDisplay(data.session.auth);
+        
+        // 智能调整轮询间隔
+        adjustPollingInterval(data.session.auth.timeUntilExpiry);
+        
+        // 保存最新的会话数据
+        await chrome.storage.local.set({
+          sessionData: data.session,
+          lastSessionUpdate: Date.now()
+        });
+        
+        // 更新同步状态为在线
+        updateSyncStatus('online', `同步于 ${new Date().toLocaleTimeString()}`);
+        
+        console.log('会话状态同步成功:', data.session);
+      } else {
+        throw new Error(data.error || '会话状态获取失败');
+      }
+    } else if (response.status === 401 || response.status === 403) {
+      // 认证失败，清除token
+      console.log('认证失败，清除token');
+      updateSyncStatus('offline', `认证失败 (${response.status})`);
+      await handleAuthFailure();
+    } else {
+      console.warn('会话状态请求失败:', response.status);
+      updateSyncStatus('offline', `HTTP ${response.status}`);
+    }
+  } catch (error) {
+    console.error('轮询会话状态失败:', error);
+    
+    // 更新状态为离线
+    if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+      updateSyncStatus('offline', '网络连接失败');
+      adjustPollingIntervalForNetworkError();
+    } else {
+      updateSyncStatus('offline', error.message);
+    }
+  } finally {
+    isPolling = false;
+  }
+}
+
+function adjustPollingInterval(timeUntilExpiry) {
+  // 根据token过期时间智能调整轮询间隔
+  if (timeUntilExpiry < 300) { // 5分钟内过期
+    currentPollingDelay = 30000; // 30秒
+    console.log('Token即将过期，轮询间隔调整为30秒');
+  } else if (timeUntilExpiry < 1800) { // 30分钟内过期
+    currentPollingDelay = 60000; // 60秒
+  } else {
+    currentPollingDelay = 120000; // 120秒
+  }
+  
+  // 重置轮询定时器
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = setInterval(pollSessionStatus, currentPollingDelay);
+  }
+}
+
+function adjustPollingIntervalForNetworkError() {
+  // 网络错误时指数退避
+  currentPollingDelay = Math.min(currentPollingDelay * 2, 300000); // 最大5分钟
+  console.log('网络错误，轮询间隔调整为', currentPollingDelay / 1000, '秒');
+  
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = setInterval(pollSessionStatus, currentPollingDelay);
+  }
+}
+
+function updatePointsDisplay(points) {
+  const currentPointsElement = document.getElementById('currentPoints');
+  if (currentPointsElement) {
+    currentPointsElement.textContent = points.current;
+  }
+  
+  // 保存积分到本地存储
+  chrome.storage.local.set({
+    pointsData: points,
+    lastPointsUpdate: Date.now()
+  });
+}
+
+function updateSyncStatus(status, message = '') {
+  // 更新同步状态显示
+  const statusElement = document.getElementById('authStatus');
+  const statusDot = statusElement?.querySelector('.status-dot');
+  const statusText = statusElement?.querySelector('.status-text');
+  
+  if (!statusElement || !statusDot || !statusText) {
+    return;
+  }
+  
+  // 清除所有状态类
+  statusElement.classList.remove('online', 'expiring', 'offline', 'syncing');
+  
+  switch (status) {
+    case 'syncing':
+      statusElement.classList.add('syncing');
+      statusText.textContent = '同步中...';
+      statusElement.title = '正在同步认证状态' + (message ? `: ${message}` : '');
+      break;
+    case 'online':
+      statusElement.classList.add('online');
+      statusText.textContent = '在线';
+      statusElement.title = '认证状态正常' + (message ? `: ${message}` : '');
+      break;
+    case 'expiring':
+      statusElement.classList.add('expiring');
+      statusText.textContent = '即将过期';
+      statusElement.title = '认证即将过期' + (message ? `: ${message}` : '');
+      break;
+    case 'offline':
+      statusElement.classList.add('offline');
+      statusText.textContent = '离线';
+      statusElement.title = '认证状态异常' + (message ? `: ${message}` : '');
+      break;
+    default:
+      statusText.textContent = '未知状态';
+      statusElement.title = '未知认证状态';
+  }
+}
+
+function updateAuthStatusDisplay(auth) {
+  // 更新认证状态显示
+  const statusElement = document.getElementById('authStatus');
+  const statusDot = statusElement?.querySelector('.status-dot');
+  const statusText = statusElement?.querySelector('.status-text');
+  
+  if (!statusElement || !statusDot || !statusText) {
+    return;
+  }
+  
+  const timeLeft = auth.timeUntilExpiry;
+  
+  // 清除所有状态类
+  statusElement.classList.remove('online', 'expiring', 'offline', 'syncing');
+  
+  if (timeLeft < 300) { // 5分钟内过期
+    statusElement.classList.add('expiring');
+    statusText.textContent = `${Math.floor(timeLeft / 60)}分钟后过期`;
+  } else if (timeLeft < 1800) { // 30分钟内过期
+    statusElement.classList.add('expiring');
+    statusText.textContent = `${Math.floor(timeLeft / 60)}分钟后过期`;
+  } else {
+    statusElement.classList.add('online');
+    statusText.textContent = '认证有效';
+  }
+  
+  statusElement.title = `Token过期时间: ${new Date(auth.exp * 1000).toLocaleString()}`;
+}
+
+async function handleAuthFailure() {
+  // 处理认证失败
+  await chrome.storage.local.remove(['authToken', 'sessionData']);
+  updateLoginStatusUI(false);
+  
+  // 重置轮询间隔
+  currentPollingDelay = 60000;
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = setInterval(pollSessionStatus, currentPollingDelay);
+  }
+}
+
+// 停止轮询（用于卸载时）
+function stopPolling() {
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = null;
+  }
 }
 
 // 打开登录页面

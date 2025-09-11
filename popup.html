@@ -1099,6 +1099,61 @@
       align-items: center;
       justify-content: center;
     }
+    
+    /* 认证状态指示器样式 */
+    .auth-status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 12px;
+      background: #f5f5f5;
+      color: #666;
+      margin-left: 8px;
+    }
+    .auth-status-indicator .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #ccc;
+    }
+    .auth-status-indicator .status-text {
+      font-size: 11px;
+    }
+    .auth-status-indicator.online {
+      background: #f0f9ff;
+      color: #0369a1;
+    }
+    .auth-status-indicator.online .status-dot {
+      background: #0369a1;
+    }
+    .auth-status-indicator.expiring {
+      background: #fff7ed;
+      color: #ea580c;
+    }
+    .auth-status-indicator.expiring .status-dot {
+      background: #ea580c;
+    }
+    .auth-status-indicator.offline {
+      background: #fef2f2;
+      color: #dc2626;
+    }
+    .auth-status-indicator.offline .status-dot {
+      background: #dc2626;
+    }
+    .auth-status-indicator.syncing {
+      background: #f0f9ff;
+      color: #0284c7;
+    }
+    .auth-status-indicator.syncing .status-dot {
+      background: #0284c7;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
   </style>
 </head>
 <body>
@@ -1120,6 +1175,10 @@
         </svg>
         <span id="currentPoints">0</span> 积分
       </button>
+      <div class="auth-status-indicator" id="authStatus" title="认证状态">
+        <span class="status-dot"></span>
+        <span class="status-text">未同步</span>
+      </div>
     </div>
     <div class="header-right">
       <div id="loginStatus" class="login-status logged-out">

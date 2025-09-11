@@ -315,6 +315,54 @@ app.post('/api/auth/verify', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== 统一会话状态API ====================
+// 获取用户会话状态（用户信息 + 认证状态 + 积分信息）
+app.get('/api/session/status', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    // 并行获取用户信息和积分信息
+    const [user, currentPoints, pointsStats] = await Promise.all([
+      UserService.findById(userId),
+      UserService.getUserPoints(userId),
+      UserService.getUserPointsStats(userId)
+    ]);
+    
+    if (!user) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    
+    // 计算token过期时间（从JWT中获取）
+    const tokenExp = req.user.exp || Math.floor(Date.now() / 1000) + 3600; // 默认1小时
+    
+    res.json({
+      success: true,
+      session: {
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email
+        },
+        auth: {
+          exp: tokenExp,
+          iat: req.user.iat || Math.floor(Date.now() / 1000),
+          timeUntilExpiry: Math.max(0, tokenExp - Math.floor(Date.now() / 1000))
+        },
+        points: {
+          current: currentPoints,
+          totalEarned: pointsStats.totalEarned || 0,
+          totalConsumed: pointsStats.totalConsumed || 0,
+          recordCount: pointsStats.recordCount || 0
+        },
+        lastSync: Date.now()
+      }
+    });
+  } catch (error) {
+    console.error('获取会话状态失败:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
 // ==================== 积分相关API ====================
 
 // 获取用户积分信息
@@ -740,6 +788,8 @@ app.get('/ext/bridge', (req, res) => {
     <head>
         <meta charset="utf-8">
         <title>插件连接</title>
+        <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+        <meta http-equiv="X-Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
         <style>
             body {
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -799,25 +849,28 @@ app.get('/ext/bridge', (req, res) => {
         </div>
         
         <script>
-            const token = new URLSearchParams(window.location.search).get('token');
+            // 从URL哈希中获取token
+            const token = window.location.hash.substring(1); // 移除#号
+            
             if (token) {
-                // 保存token到localStorage
-                localStorage.setItem('token', token);
+                // 立即清除URL哈希中的token
+                history.pushState('', document.title, window.location.pathname + window.location.search);
                 
-                // 尝试发送token到插件
+                // 不保存token到localStorage，直接传递给插件
                 try {
-                    console.log('尝试与插件通信...');
+                    console.log('开始与插件通信...');
+                    
                     if (window.chrome && window.chrome.runtime) {
-                        // 方法1：直接保存到Chrome存储（popup会检查这里）
+                        // 方法1：保存到Chrome存储（插件轮询时会检查）
                         chrome.storage.local.set({ 
                             authToken: token,
                             authTimestamp: Date.now()
                         }, () => {
-                            console.log('Token已保存到Chrome存储');
+                            console.log('Token已传递到Chrome存储');
                             document.getElementById('status').textContent = '登录状态已同步到插件！';
                         });
                         
-                        // 方法2：尝试向background script发送消息
+                        // 方法2：向background script发送消息
                         setTimeout(() => {
                             try {
                                 chrome.runtime.sendMessage('', {
@@ -826,18 +879,18 @@ app.get('/ext/bridge', (req, res) => {
                                     timestamp: Date.now()
                                 }, response => {
                                     if (chrome.runtime.lastError) {
-                                        console.log('无法直接连接到background script，使用storage方法');
+                                        console.log('Background script连接失败，使用storage方法');
                                     } else if (response && response.success) {
                                         console.log('插件响应成功');
                                         document.getElementById('status').textContent = '插件连接成功！';
                                     }
                                 });
                             } catch (e) {
-                                console.log('直接消息发送失败，使用storage方法');
+                                console.log('消息发送失败，使用storage方法');
                             }
                         }, 100);
                         
-                        // 方法3：设置全局变量作为备用
+                        // 方法3：设置全局变量供content script读取
                         window.xhsAuthToken = token;
                         window.xhsAuthTimestamp = Date.now();
                         
@@ -846,51 +899,33 @@ app.get('/ext/bridge', (req, res) => {
                             detail: { token, timestamp: Date.now() }
                         }));
                         
-                        // 方法5：使用postMessage与其他窗口通信
+                        // 方法5：使用postMessage通信
                         window.postMessage({
                             type: 'XHS_AUTH_UPDATE',
                             token: token,
                             timestamp: Date.now()
                         }, '*');
                         
-                        console.log('所有插件通信方法已执行');
+                        console.log('插件通信已完成');
                     } else {
                         console.log('Chrome runtime API不可用');
                         document.getElementById('status').textContent = '请确保在Chrome浏览器中运行';
                     }
                 } catch (error) {
                     console.error('插件通信失败:', error);
-                    document.getElementById('status').textContent = '通信失败，但token已保存';
+                    document.getElementById('status').textContent = '通信失败，请重试';
                 }
                 
-                // 更新状态
-                document.getElementById('status').textContent = '登录状态已同步，可以关闭此页面';
+                // 更新状态并设置自动关闭
+                document.getElementById('status').textContent = '登录状态已同步，页面将在3秒后自动关闭';
                 
-                // 清空URL中的token
-                if (window.history.replaceState) {
-                    window.history.replaceState({}, document.title, window.location.pathname);
-                }
-                
-                // 通知插件登录状态改变
-                try {
-                    if (window.chrome && window.chrome.runtime) {
-                        // 广播消息到所有可能的插件
-                        chrome.runtime.sendMessage('', {
-                            type: 'LOGIN_STATUS_CHANGED',
-                            data: { isLoggedIn: true }
-                        });
-                    }
-                } catch (error) {
-                    console.log('状态同步失败，但不影响使用');
-                }
+                setTimeout(() => {
+                    window.close();
+                }, 3000);
             } else {
-                document.getElementById('status').textContent = '未检测到登录信息，请重新操作';
+                document.getElementById('status').textContent = '未检测到有效的认证信息';
+                console.error('Bridge page: No token found in URL hash');
             }
-            
-            // 3秒后自动尝试关闭页面
-            setTimeout(() => {
-                window.close();
-            }, 3000);
         </script>
     </body>
     </html>
@@ -1829,7 +1864,7 @@ app.get('/dashboard', async (req, res) => {
             function connectPlugin() {
                 const token = localStorage.getItem('token');
                 if (token) {
-                    const bridgeUrl = '/ext/bridge?token=' + encodeURIComponent(token);
+                    const bridgeUrl = '/ext/bridge#' + encodeURIComponent(token);
                     window.open(bridgeUrl, '_blank');
                 } else {
                     alert('请先登录');
