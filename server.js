@@ -18,6 +18,9 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.SERVER_PORT || 8080;
 
+// 信任一层代理（Zeabur环境）
+app.set('trust proxy', 1);
+
 // 安全中间件
 app.use(helmet({
   contentSecurityPolicy: {
@@ -166,7 +169,7 @@ const authenticateToken = (req, res, next) => {
 // ==================== 用户相关API ====================
 
 // 用户注册
-app.post('/api/auth/register', authLimiter, async (req, res) => {
+app.post('/api/auth/register', async (req, res) => { // 临时移除限流中间件
   try {
     const { username, email, phone, password } = req.body;
 
@@ -224,7 +227,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 });
 
 // 用户登录
-app.post('/api/auth/login', authLimiter, async (req, res) => {
+app.post('/api/auth/login', async (req, res) => { // 临时移除限流中间件
   try {
     const { username, password } = req.body;
 
@@ -2535,16 +2538,14 @@ app.use((err, req, res, next) => {
   // JWT验证错误
   if (err.name === 'JsonWebTokenError') {
     return res.status(401).json({ 
-      error: '令牌无效',
-      message: '请重新登录'
+      error: '登录令牌无效，请重新登录'
     });
   }
   
   // JWT过期错误
   if (err.name === 'TokenExpiredError') {
     return res.status(401).json({ 
-      error: '令牌已过期',
-      message: '请重新登录'
+      error: '登录已过期，请重新登录'
     });
   }
   
@@ -2558,11 +2559,10 @@ app.use((err, req, res, next) => {
   
   // 默认错误
   const statusCode = err.statusCode || 500;
-  const message = process.env.NODE_ENV === 'production' ? '服务器内部错误' : err.message;
+  const message = '服务器暂时无法处理请求，请稍后再试';
   
   res.status(statusCode).json({ 
-    error: message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    error: message
   });
 });
 

@@ -82,31 +82,40 @@ class UserService {
     user.lastLoginAt = new Date();
     await user.save();
 
-    // 检查用户是否有注册奖励积分，如果没有则添加
-    const hasRegistrationBonus = await PointsRecord.findOne({ 
-      userId: user._id, 
-      actionType: 'registration_bonus' 
-    });
-    
-    if (!hasRegistrationBonus && user.points === 0) {
-      console.log('用户缺少注册奖励，正在添加...');
-      const bonusPoints = 10;
-      await user.addPoints(bonusPoints);
-      
-      await PointsRecord.create({
-        userId: user._id,
-        points: bonusPoints,
-        type: 'earn',
-        actionType: 'registration_bonus',
-        description: '注册奖励',
-        balance: user.points
-      });
-      
-      console.log('注册奖励添加完成，当前积分:', user.points);
-    }
+    // 确保注册奖励
+    await this.ensureRegistrationBonus(user._id);
 
     console.log('用户验证成功:', user.username, '积分余额:', user.points);
     return user;
+  }
+
+  // 确保注册奖励
+  async ensureRegistrationBonus(userId) {
+    const existingBonus = await PointsRecord.findOne({ 
+      userId, 
+      actionType: 'registration_bonus' 
+    });
+    
+    if (existingBonus) {
+      console.log('用户已获得过注册奖励，跳过 - userId:', userId);
+      return;
+    }
+    
+    console.log('用户未获得注册奖励，正在发放 - userId:', userId);
+    const user = await this.findById(userId);
+    const bonusPoints = 10;
+    await user.addPoints(bonusPoints);
+    
+    await PointsRecord.create({
+      userId,
+      points: bonusPoints,
+      type: 'earn',
+      actionType: 'registration_bonus',
+      description: '注册奖励',
+      balance: user.points
+    });
+    
+    console.log('注册奖励发放完成 - userId:', userId, '积分:', user.points);
   }
 
   // 获取用户积分
