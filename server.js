@@ -12,6 +12,7 @@ const { connectDB } = require('./config/database');
 const UserService = require('./services/UserService');
 const PointsService = require('./services/PointsService');
 const PointsOrderService = require('./services/PointsOrderService');
+const { logger, requestLogger, errorLogger } = require('./utils/logger');
 require('dotenv').config();
 
 const app = express();
@@ -103,6 +104,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// 请求日志中间件
+app.use(requestLogger);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -114,24 +118,29 @@ const paymentFactory = new PaymentFactory();
 // 启动服务器函数
 const startServer = async () => {
   try {
+    logger.info('正在启动服务器...', { port: PORT, environment: process.env.NODE_ENV || 'development' });
+    
     // 连接数据库
     await connectDB();
+    logger.info('数据库连接成功');
     
     // 启动服务器
     global.server = app.listen(PORT, () => {
-      console.log(`服务器运行在端口 ${PORT}`);
-      console.log(`API文档: http://localhost:${PORT}/api`);
-      console.log(`健康检查: http://localhost:${PORT}/health`);
+      logger.info('服务器启动成功', { 
+        port: PORT, 
+        apiDocs: `http://localhost:${PORT}/api`,
+        healthCheck: `http://localhost:${PORT}/health`
+      });
     }).on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
-        console.error(`端口 ${PORT} 已被占用`);
+        logger.error(`端口 ${PORT} 已被占用`, { error: err.message });
       } else {
-        console.error('服务器启动失败:', err);
+        logger.error('服务器启动失败', { error: err.message, stack: err.stack });
       }
       process.exit(1);
     });
   } catch (error) {
-    console.error('启动服务器失败:', error);
+    logger.error('启动服务器失败', { error: error.message, stack: error.stack });
     process.exit(1);
   }
 };
@@ -223,24 +232,24 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       return res.status(400).json({ error: '用户名和密码不能为空' });
     }
 
-    console.log('=== 登录请求开始 ===');
-    console.log('时间:', new Date().toISOString());
-    console.log('用户名:', username);
-    console.log('密码长度:', password?.length);
-    console.log('数据库连接状态:', global.mongoConnected);
+    logger.info('用户登录请求开始', { 
+      username, 
+      passwordLength: password?.length,
+      dbConnected: global.mongoConnected 
+    });
 
     // 验证用户
     const user = await UserService.validateUser(username, password);
-    console.log('用户验证结果:', { 
-      userId: user?._id, 
-      username: user?.username,
-      email: user?.email,
-      points: user?.points 
+    logger.info('用户验证成功', { 
+      userId: user._id, 
+      username: user.username,
+      email: user.email,
+      points: user.points 
     });
     
     // 获取用户积分统计（延迟到dashboard页面再获取以减少登录延迟）
     const pointsStats = { totalEarned: 0, totalConsumed: 0, recordCount: 0 };
-    console.log('登录成功，积分统计将延迟加载');
+    logger.info('登录成功，积分统计将延迟加载');
 
     // 生成访问令牌（短期时效）
     const accessToken = jwt.sign(
@@ -256,8 +265,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       { expiresIn: '7d' } // 7天过期
     );
 
-    console.log('登录成功，生成token完成');
-    console.log('=== 登录请求结束 ===');
+    logger.info('用户登录完成', { username, userId: user._id });
 
     res.json({
       success: true,
@@ -274,14 +282,13 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('=== 登录失败 ===');
-    console.error('时间:', new Date().toISOString());
-    console.error('用户名:', username);
-    console.error('错误类型:', error.constructor.name);
-    console.error('错误信息:', error.message);
-    console.error('错误堆栈:', error.stack);
-    console.error('数据库连接状态:', global.mongoConnected);
-    console.error('===============');
+    logger.error('用户登录失败', { 
+      username,
+      errorType: error.constructor.name,
+      errorMessage: error.message,
+      errorStack: error.stack,
+      dbConnected: global.mongoConnected
+    });
     
     if (error.message === '用户不存在' || error.message === '密码错误') {
       res.status(400).json({ error: error.message });
@@ -2493,6 +2500,71 @@ const gracefulShutdown = async (signal) => {
     process.exit(1);
   }
 };
+
+// 404处理
+app.use((req, res) => {
+  logger.warn('404 Not Found', { 
+    method: req.method, 
+    url: req.url, 
+    ip: req.ip 
+  });
+  res.status(404).json({ error: '接口不存在' });
+});
+
+// 错误处理中间件
+app.use(errorLogger);
+
+// 全局错误处理
+app.use((err, req, res, next) => {
+  logger.error('未处理的错误', { 
+    error: err.message, 
+    stack: err.stack,
+    method: req.method,
+    url: req.url,
+    ip: req.ip
+  });
+  
+  // 数据库连接错误
+  if (err.message === '数据库未连接，请检查MongoDB配置') {
+    return res.status(503).json({ 
+      error: '数据库连接失败',
+      message: '请稍后再试'
+    });
+  }
+  
+  // JWT验证错误
+  if (err.name === 'JsonWebTokenError') {
+    return res.status(401).json({ 
+      error: '令牌无效',
+      message: '请重新登录'
+    });
+  }
+  
+  // JWT过期错误
+  if (err.name === 'TokenExpiredError') {
+    return res.status(401).json({ 
+      error: '令牌已过期',
+      message: '请重新登录'
+    });
+  }
+  
+  // 验证错误
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({ 
+      error: '数据验证失败',
+      message: err.message
+    });
+  }
+  
+  // 默认错误
+  const statusCode = err.statusCode || 500;
+  const message = process.env.NODE_ENV === 'production' ? '服务器内部错误' : err.message;
+  
+  res.status(statusCode).json({ 
+    error: message,
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
+});
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));

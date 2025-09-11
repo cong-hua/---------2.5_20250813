@@ -18,10 +18,14 @@ class UserService {
       const user = new User(userData);
       await user.save();
       
+      // 添加注册奖励积分
+      const bonusPoints = 10;
+      await user.addPoints(bonusPoints);
+      
       // 创建注册奖励积分记录
       await PointsRecord.create({
         userId: user._id,
-        points: 10, // 注册奖励10积分
+        points: bonusPoints,
         type: 'earn',
         actionType: 'registration_bonus',
         description: '注册奖励',
@@ -78,7 +82,30 @@ class UserService {
     user.lastLoginAt = new Date();
     await user.save();
 
-    console.log('用户验证成功:', user.username);
+    // 检查用户是否有注册奖励积分，如果没有则添加
+    const hasRegistrationBonus = await PointsRecord.findOne({ 
+      userId: user._id, 
+      actionType: 'registration_bonus' 
+    });
+    
+    if (!hasRegistrationBonus && user.points === 0) {
+      console.log('用户缺少注册奖励，正在添加...');
+      const bonusPoints = 10;
+      await user.addPoints(bonusPoints);
+      
+      await PointsRecord.create({
+        userId: user._id,
+        points: bonusPoints,
+        type: 'earn',
+        actionType: 'registration_bonus',
+        description: '注册奖励',
+        balance: user.points
+      });
+      
+      console.log('注册奖励添加完成，当前积分:', user.points);
+    }
+
+    console.log('用户验证成功:', user.username, '积分余额:', user.points);
     return user;
   }
 
